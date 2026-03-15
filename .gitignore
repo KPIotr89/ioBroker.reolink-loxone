@@ -3,7 +3,6 @@ node_modules/
 .vscode/
 *.code-workspace
 npm-debug.log
-package-lock.json
 .DS_Store
 Thumbs.db
 admin/i18n/flat.txt
