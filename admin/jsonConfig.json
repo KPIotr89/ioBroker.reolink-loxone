@@ -1,0 +1,195 @@
+{
+  "i18n": true,
+  "type": "tabs",
+  "items": {
+    "_tabCameras": {
+      "type": "panel",
+      "label": "Cameras",
+      "icon": "videocam",
+      "items": {
+        "cameras": {
+          "type": "table",
+          "label": "Camera List",
+          "items": [
+            {
+              "type": "checkbox",
+              "attr": "enabled",
+              "label": "Enabled",
+              "default": true,
+              "width": "60px"
+            },
+            {
+              "type": "text",
+              "attr": "name",
+              "label": "Camera Name",
+              "placeholder": "e.g. Front Door",
+              "width": "140px",
+              "validator": "/^[a-zA-Z0-9_ -]{1,32}$/"
+            },
+            {
+              "type": "text",
+              "attr": "host",
+              "label": "IP Address / Hostname",
+              "placeholder": "192.168.1.100",
+              "width": "160px"
+            },
+            {
+              "type": "number",
+              "attr": "port",
+              "label": "Port",
+              "default": 80,
+              "min": 1,
+              "max": 65535,
+              "width": "80px"
+            },
+            {
+              "type": "text",
+              "attr": "username",
+              "label": "Username",
+              "default": "admin",
+              "width": "100px"
+            },
+            {
+              "type": "password",
+              "attr": "password",
+              "label": "Password",
+              "width": "120px"
+            },
+            {
+              "type": "number",
+              "attr": "channel",
+              "label": "Channel",
+              "default": 0,
+              "min": 0,
+              "max": 15,
+              "width": "70px"
+            },
+            {
+              "type": "checkbox",
+              "attr": "useHttps",
+              "label": "HTTPS",
+              "default": false,
+              "width": "60px"
+            },
+            {
+              "type": "number",
+              "attr": "pollInterval",
+              "label": "Poll (s)",
+              "default": 5,
+              "min": 1,
+              "max": 300,
+              "width": "70px"
+            }
+          ],
+          "default": []
+        },
+        "_divider1": {
+          "type": "divider"
+        },
+        "defaultPollInterval": {
+          "type": "number",
+          "label": "Default poll interval (seconds)",
+          "default": 5,
+          "min": 1,
+          "max": 300,
+          "help": "Default polling interval for cameras that don't have a custom interval set"
+        }
+      }
+    },
+    "_tabLoxone": {
+      "type": "panel",
+      "label": "Loxone",
+      "icon": "home",
+      "items": {
+        "loxoneEnabled": {
+          "type": "checkbox",
+          "label": "Enable direct Loxone integration",
+          "default": false,
+          "help": "Send camera events directly to Loxone Miniserver via HTTP Virtual Inputs or UDP"
+        },
+        "loxoneHost": {
+          "type": "text",
+          "label": "Loxone Miniserver IP",
+          "placeholder": "192.168.1.10",
+          "hidden": "!data.loxoneEnabled"
+        },
+        "loxonePort": {
+          "type": "number",
+          "label": "Loxone HTTP Port",
+          "default": 80,
+          "min": 1,
+          "max": 65535,
+          "hidden": "!data.loxoneEnabled"
+        },
+        "loxoneUser": {
+          "type": "text",
+          "label": "Loxone Username",
+          "hidden": "!data.loxoneEnabled"
+        },
+        "loxonePassword": {
+          "type": "password",
+          "label": "Loxone Password",
+          "hidden": "!data.loxoneEnabled"
+        },
+        "loxoneMode": {
+          "type": "select",
+          "label": "Communication mode",
+          "options": [
+            { "label": "HTTP Virtual Inputs", "value": "http" },
+            { "label": "UDP", "value": "udp" },
+            { "label": "Both (HTTP + UDP)", "value": "both" }
+          ],
+          "default": "http",
+          "hidden": "!data.loxoneEnabled"
+        },
+        "loxoneUdpPort": {
+          "type": "number",
+          "label": "Loxone UDP Port",
+          "default": 7000,
+          "min": 1,
+          "max": 65535,
+          "hidden": "data.loxoneMode === 'http' || !data.loxoneEnabled"
+        },
+        "_loxoneInfo": {
+          "type": "staticText",
+          "label": "",
+          "text": "**Loxone Virtual Input naming convention:**\n\n• Motion: `Reolink_{CameraName}_Motion` (0/1)\n• Person AI: `Reolink_{CameraName}_AI_person` (0/1)\n• Vehicle AI: `Reolink_{CameraName}_AI_vehicle` (0/1)\n• Online: `Reolink_{CameraName}_Online` (0/1)\n\nCreate matching Virtual Inputs in Loxone Config to receive events.\nCustom names can be configured per camera in the Loxone channel of each camera object.",
+          "hidden": "!data.loxoneEnabled",
+          "style": {
+            "marginTop": "16px",
+            "padding": "12px",
+            "backgroundColor": "#f5f5f5",
+            "borderRadius": "8px",
+            "fontSize": "13px"
+          }
+        }
+      }
+    },
+    "_tabAdvanced": {
+      "type": "panel",
+      "label": "Advanced",
+      "icon": "settings",
+      "items": {
+        "snapshotOnMotion": {
+          "type": "checkbox",
+          "label": "Auto-capture snapshot on motion detection",
+          "default": false,
+          "help": "Automatically save a snapshot whenever motion is detected"
+        },
+        "snapshotRetention": {
+          "type": "number",
+          "label": "Snapshot retention (hours)",
+          "default": 24,
+          "min": 1,
+          "max": 720,
+          "help": "Automatically delete snapshots older than this"
+        },
+        "debugMode": {
+          "type": "checkbox",
+          "label": "Debug mode (verbose logging)",
+          "default": false
+        }
+      }
+    }
+  }
+}

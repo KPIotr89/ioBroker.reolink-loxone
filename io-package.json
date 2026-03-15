@@ -1,0 +1,90 @@
+{
+  "common": {
+    "name": "reolink-loxone",
+    "version": "1.0.0",
+    "title": "Reolink Camera Integration for Loxone",
+    "titleLang": {
+      "en": "Reolink Camera Integration for Loxone",
+      "de": "Reolink Kamera-Integration für Loxone",
+      "pl": "Integracja kamer Reolink z Loxone"
+    },
+    "desc": {
+      "en": "Full Reolink camera API integration with direct Loxone Miniserver bridge support. Motion detection, AI detection, PTZ, snapshots, streams, and more.",
+      "de": "Vollständige Reolink-Kamera-API-Integration mit direkter Loxone Miniserver Bridge-Unterstützung.",
+      "pl": "Pelna integracja API kamer Reolink z mostem do Loxone Miniserver. Detekcja ruchu, AI, PTZ, snapshoty, streamy i wiecej."
+    },
+    "authors": [
+      "Piotr Kalbarczyk <kalbarczyk.piotr@gmail.com>"
+    ],
+    "keywords": [
+      "reolink",
+      "loxone",
+      "camera",
+      "surveillance",
+      "CCTV",
+      "PTZ",
+      "motion",
+      "AI",
+      "smart home"
+    ],
+    "license": "MIT",
+    "platform": "Javascript/Node.js",
+    "main": "main.js",
+    "icon": "reolink-loxone.svg",
+    "enabled": true,
+    "extIcon": "https://raw.githubusercontent.com/piotrkalbarczyk/ioBroker.reolink-loxone/main/admin/reolink-loxone.svg",
+    "readme": "https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone/blob/main/README.md",
+    "loglevel": "info",
+    "tier": 3,
+    "mode": "daemon",
+    "type": "multimedia",
+    "compact": true,
+    "connectionType": "local",
+    "dataSource": "push",
+    "adminUI": {
+      "config": "json"
+    },
+    "dependencies": [
+      {
+        "js-controller": ">=5.0.0"
+      }
+    ],
+    "globalDependencies": [
+      {
+        "admin": ">=6.0.0"
+      }
+    ],
+    "supportedMessages": {
+      "stopInstance": true
+    },
+    "plugins": {
+      "sentry": {
+        "dsn": ""
+      }
+    },
+    "messagebox": true,
+    "news": {
+      "1.0.0": {
+        "en": "Initial release - Full Reolink API support with Loxone bridge",
+        "de": "Erstveröffentlichung - Volle Reolink API-Unterstützung mit Loxone Bridge",
+        "pl": "Pierwsza wersja - Pelne wsparcie API Reolink z mostem Loxone"
+      }
+    }
+  },
+  "native": {
+    "cameras": [],
+    "defaultPollInterval": 5,
+    "loxoneEnabled": false,
+    "loxoneHost": "",
+    "loxonePort": 80,
+    "loxoneUser": "",
+    "loxonePassword": "",
+    "loxoneMode": "http",
+    "loxoneUdpPort": 7000,
+    "snapshotOnMotion": false,
+    "snapshotRetention": 24,
+    "debugMode": false
+  },
+  "objects": [],
+  "instanceObjects": []
+}
