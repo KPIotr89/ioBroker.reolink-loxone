@@ -276,18 +276,29 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             const events = this.parseReolinkPushPayload(payload, body);
 
             if (events.list.length > 0) {
-                // Parsed specific event(s) — handle each
+                // Parsed specific events — handle each
                 for (const evt of events.list) {
+                    // Auto-reset momentary visitor/ring events after 1s
+                    const isVisitor = ['visitor', 'doorbell', 'ring'].includes(evt.type);
                     await this.applyWebhookEvent(resolvedCamId, camConfig, evt.type, evt.active);
+                    if (isVisitor && evt.active) {
+                        setTimeout(() => {
+                            this.applyWebhookEvent(resolvedCamId, camConfig, evt.type, false).catch(() => { /* ignore */ });
+                        }, 1000);
+                    }
                 }
-            } else {
-                // No parseable event — the POST itself is the trigger (doorbell/visitor)
-                // Behaves like Node-RED trigger 1000ms: set true, auto-reset after 1s
-                this.log.info(`Camera "${resolvedCamId}": webhook POST received → visitor/doorbell event`);
+            } else if (body.length === 0) {
+                // Empty body — camera sent no payload at all
+                // Fall back: treat POST as visitor (some cameras send no body for doorbell)
+                this.log.info(`Camera "${resolvedCamId}": webhook POST with empty body → treating as visitor (configure camera to send body for confirmation)`);
                 await this.applyWebhookEvent(resolvedCamId, camConfig, 'visitor', true);
                 setTimeout(() => {
                     this.applyWebhookEvent(resolvedCamId, camConfig, 'visitor', false).catch(() => { /* ignore */ });
                 }, 1000);
+            } else {
+                // Body received but couldn't parse — log it so user can report the format
+                this.log.warn(`Camera "${resolvedCamId}": webhook body not recognized — ignoring. Raw body: ${body.slice(0, 500)}`);
+                this.log.warn(`Please report this to fix parsing. No event fired.`);
             }
 
         } catch (e) {
@@ -330,9 +341,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
         }
 
-        // Log unparsed payload in debug so user can report unknown formats
+        // If we got a non-empty body but couldn't extract any events, log at info level
+        // so the user can see what format the camera is sending
         if (result.list.length === 0 && rawBody.length > 2) {
-            this.log.debug(`Webhook: could not parse payload — raw: ${rawBody.slice(0, 300)}`);
+            this.log.info(`Webhook: unrecognized body format — raw payload: ${rawBody.slice(0, 500)}`);
         }
 
         return result;
