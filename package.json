@@ -6,7 +6,7 @@
     "name": "Piotr Kalbarczyk",
     "email": "kalbarczyk.piotr@gmail.com"
   },
-  "homepage": "https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone",
+  "homepage": "https://github.com/KPIotr89/ioBroker.reolink-loxone",
   "license": "MIT",
   "keywords": [
     "ioBroker",
@@ -25,10 +25,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone.git"
+    "url": "https://github.com/KPIotr89/ioBroker.reolink-loxone.git"
   },
   "bugs": {
-    "url": "https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone/issues"
+    "url": "https://github.com/KPIotr89/ioBroker.reolink-loxone/issues"
   },
   "main": "main.js",
   "files": [

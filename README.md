@@ -12,7 +12,7 @@
   <a href="https://www.npmjs.com/package/iobroker.reolink-loxone"><img src="https://img.shields.io/npm/v/iobroker.reolink-loxone.svg" alt="npm version"/></a>
   <a href="https://www.npmjs.com/package/iobroker.reolink-loxone"><img src="https://img.shields.io/npm/dm/iobroker.reolink-loxone.svg" alt="npm downloads"/></a>
   <img src="https://img.shields.io/node/v/iobroker.reolink-loxone.svg" alt="node version"/>
-  <a href="https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone/blob/main/LICENSE"><img src="https://img.shields.io/github/license/piotrkalbarczyk/ioBroker.reolink-loxone.svg" alt="license"/></a>
+  <a href="https://github.com/KPIotr89/ioBroker.reolink-loxone/blob/main/LICENSE"><img src="https://img.shields.io/github/license/KPIotr89/ioBroker.reolink-loxone.svg" alt="license"/></a>
 </p>
 
 ---
@@ -55,7 +55,7 @@ This adapter works with any Reolink camera or NVR that exposes the HTTP API, inc
 
 ```bash
 cd /opt/iobroker
-iobroker url https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone/archive/refs/heads/main.tar.gz
+iobroker url https://github.com/KPIotr89/ioBroker.reolink-loxone/archive/refs/heads/main.tar.gz
 ```
 
 ### From npm (after publishing)
@@ -311,7 +311,7 @@ Use the `streams.rtspMain` or `streams.snapshotUrl` states in VIS widgets to dis
 
 ```bash
 # Clone the repository
-git clone https://github.com/piotrkalbarczyk/ioBroker.reolink-loxone.git
+git clone https://github.com/KPIotr89/ioBroker.reolink-loxone.git
 cd ioBroker.reolink-loxone
 
 # Install dependencies
