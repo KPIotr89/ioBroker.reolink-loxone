@@ -26,6 +26,9 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         /** @type {Map<string, object>} */
         this.lastStates = new Map();
 
+        /** @type {Map<string, object>} Camera capabilities from GetAbility */
+        this.capabilities = new Map();
+
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
         this.on('unload', this.onUnload.bind(this));
@@ -123,6 +126,9 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             const devInfo = await api.getDevInfo();
             this.log.info(`Connected to ${devInfo.DevInfo?.model || 'Reolink'} (${devInfo.DevInfo?.name || camId}) FW: ${devInfo.DevInfo?.firmVer || 'unknown'}`);
 
+            // Get camera capabilities to know which features are supported
+            await this.detectCapabilities(camId, api);
+
             // Create object tree for this camera
             await this.createCameraObjects(camId, camConfig, devInfo);
 
@@ -141,6 +147,69 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             this.log.error(`Failed to initialize camera "${camId}": ${err.message}`);
             await this.setStateAsync(`${camId}.info.connection`, false, true);
         }
+    }
+
+    // ─── CAPABILITY DETECTION ─────────────────────────────────────────
+
+    /**
+     * Detect camera capabilities via GetAbility API
+     * This prevents sending unsupported commands (e.g. WhiteLed on CX810/CX820)
+     */
+    async detectCapabilities(camId, api) {
+        const caps = {
+            ptz: false,
+            whiteLed: false,
+            siren: false,
+            aiDetection: false,
+            motionDetection: true, // assume all cameras support this
+            irLights: true,
+            recording: true,
+            snapshot: true,
+        };
+
+        try {
+            const ability = await api.getAbility();
+            const ab = ability?.Ability || ability || {};
+
+            // PTZ support
+            if (ab.ptz && ab.ptz.ver > 0) caps.ptz = true;
+            if (ab.ptzCtrl && ab.ptzCtrl.ver > 0) caps.ptz = true;
+
+            // White LED / spotlight
+            if (ab.whiteLed && ab.whiteLed.ver > 0) caps.whiteLed = true;
+            if (ab.floodLight && ab.floodLight.ver > 0) caps.whiteLed = true;
+            if (ab.ledControl && ab.ledControl.ver > 0) caps.whiteLed = true;
+
+            // Siren / audio alarm
+            if (ab.audioAlarm && ab.audioAlarm.ver > 0) caps.siren = true;
+            if (ab.alarmAudio && ab.alarmAudio.ver > 0) caps.siren = true;
+
+            // AI detection
+            if (ab.aiTrack && ab.aiTrack.ver > 0) caps.aiDetection = true;
+            if (ab.ai && ab.ai.ver > 0) caps.aiDetection = true;
+
+            this.log.info(`Camera "${camId}" capabilities: PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
+        } catch (e) {
+            this.log.debug(`GetAbility unavailable for "${camId}", using probe detection: ${e.message}`);
+
+            // Fallback: probe individual commands (using direct auth)
+            try { await api._cmdDirect('GetWhiteLed', { channel: 0 }); caps.whiteLed = true; } catch (_) { /* not supported */ }
+            try { await api.getAudioAlarmState(); caps.siren = true; } catch (_) { /* not supported */ }
+            try { await api.getAiState(); caps.aiDetection = true; } catch (_) { /* not supported */ }
+            try { await api.getPtzPresets(); caps.ptz = true; } catch (_) { /* not supported */ }
+
+            this.log.info(`Camera "${camId}" capabilities (probed): PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
+        }
+
+        this.capabilities.set(camId, caps);
+    }
+
+    /**
+     * Check if a camera supports a given capability
+     */
+    hasCapability(camId, capability) {
+        const caps = this.capabilities.get(camId);
+        return caps ? !!caps[capability] : false;
     }
 
     // ─── OBJECT CREATION ──────────────────────────────────────────────
@@ -205,24 +274,34 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         await this.createStateObj(camId, 'control.snapshot', 'Trigger snapshot capture', 'boolean', 'button', false, true);
         await this.createStateObj(camId, 'control.reboot', 'Reboot camera', 'boolean', 'button', false, true);
         await this.createStateObj(camId, 'control.irLights', 'IR lights (Auto/On/Off)', 'string', 'switch', 'Auto', true, { states: { Auto: 'Auto', On: 'On', Off: 'Off' } });
-        await this.createStateObj(camId, 'control.whiteLed', 'White LED / spotlight', 'boolean', 'switch', false, true);
-        await this.createStateObj(camId, 'control.siren', 'Trigger siren/alarm', 'boolean', 'button', false, true);
 
-        // ── PTZ channel (writable)
-        await this.createChannel(camId, 'ptz', 'PTZ Control');
-        await this.createStateObj(camId, 'ptz.command', 'PTZ command', 'string', 'text', '', true, {
-            states: {
-                Left: 'Left', Right: 'Right', Up: 'Up', Down: 'Down',
-                LeftUp: 'LeftUp', LeftDown: 'LeftDown', RightUp: 'RightUp', RightDown: 'RightDown',
-                ZoomInc: 'Zoom In', ZoomDec: 'Zoom Out',
-                FocusInc: 'Focus +', FocusDec: 'Focus -',
-                Stop: 'Stop', Auto: 'Auto Patrol',
-            },
-        });
-        await this.createStateObj(camId, 'ptz.speed', 'PTZ speed (1-64)', 'number', 'level', 32, true, { min: 1, max: 64 });
-        await this.createStateObj(camId, 'ptz.goToPreset', 'Go to preset index', 'number', 'value', 0, true);
-        await this.createStateObj(camId, 'ptz.patrol', 'Start/stop patrol', 'boolean', 'switch', false, true);
-        await this.createStateObj(camId, 'ptz.stop', 'Stop PTZ movement', 'boolean', 'button', false, true);
+        // Only create WhiteLed control if camera supports it
+        if (this.hasCapability(camId, 'whiteLed')) {
+            await this.createStateObj(camId, 'control.whiteLed', 'White LED / spotlight', 'boolean', 'switch', false, true);
+        }
+
+        // Only create siren control if camera supports it
+        if (this.hasCapability(camId, 'siren')) {
+            await this.createStateObj(camId, 'control.siren', 'Trigger siren/alarm', 'boolean', 'button', false, true);
+        }
+
+        // ── PTZ channel (only if camera supports PTZ)
+        if (this.hasCapability(camId, 'ptz')) {
+            await this.createChannel(camId, 'ptz', 'PTZ Control');
+            await this.createStateObj(camId, 'ptz.command', 'PTZ command', 'string', 'text', '', true, {
+                states: {
+                    Left: 'Left', Right: 'Right', Up: 'Up', Down: 'Down',
+                    LeftUp: 'LeftUp', LeftDown: 'LeftDown', RightUp: 'RightUp', RightDown: 'RightDown',
+                    ZoomInc: 'Zoom In', ZoomDec: 'Zoom Out',
+                    FocusInc: 'Focus +', FocusDec: 'Focus -',
+                    Stop: 'Stop', Auto: 'Auto Patrol',
+                },
+            });
+            await this.createStateObj(camId, 'ptz.speed', 'PTZ speed (1-64)', 'number', 'level', 32, true, { min: 1, max: 64 });
+            await this.createStateObj(camId, 'ptz.goToPreset', 'Go to preset index', 'number', 'value', 0, true);
+            await this.createStateObj(camId, 'ptz.patrol', 'Start/stop patrol', 'boolean', 'switch', false, true);
+            await this.createStateObj(camId, 'ptz.stop', 'Stop PTZ movement', 'boolean', 'button', false, true);
+        }
 
         // ── Image settings channel
         await this.createChannel(camId, 'image', 'Image Settings');
@@ -282,8 +361,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 this.log.debug(`Motion state unavailable for ${camId}: ${e.message}`);
             }
 
-            // AI detection state
-            try {
+            // AI detection state (only if camera supports AI)
+            if (!this.hasCapability(camId, 'aiDetection')) {
+                // Skip AI polling for cameras without AI support
+            } else try {
                 const aiState = await api.getAiState(ch);
                 const aiData = aiState?.AiState || aiState;
                 const detections = {
@@ -397,18 +478,27 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
 
                 case 'control.whiteLed':
+                    if (!this.hasCapability(camId, 'whiteLed')) {
+                        this.log.debug(`Camera "${camId}" does not support White LED — skipping`);
+                        break;
+                    }
                     await api.setWhiteLed({
                         channel: ch,
                         state: state.val ? 1 : 0,
-                        mode: 1, // manual
+                        mode: 0,
                         bright: 100,
                     });
+                    this.log.info(`White LED ${state.val ? 'ON' : 'OFF'} for camera "${camId}"`);
                     await this.setStateAsync(id, !!state.val, true);
                     break;
 
                 case 'control.siren':
+                    if (!this.hasCapability(camId, 'siren')) {
+                        this.log.debug(`Camera "${camId}" does not support Siren — skipping`);
+                        break;
+                    }
                     if (state.val) {
-                        await api._cmd('AudioAlarmPlay', {
+                        await api._cmdDirect('AudioAlarmPlay', {
                             AudioAlarmPlay: { channel: ch, manualSwitch: 1, duration: 5 },
                         }, 0);
                         await this.setStateAsync(id, false, true);
@@ -417,6 +507,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
 
                 // ── PTZ commands
                 case 'ptz.command': {
+                    if (!this.hasCapability(camId, 'ptz')) {
+                        this.log.debug(`Camera "${camId}" does not support PTZ — skipping`);
+                        break;
+                    }
                     const speedState = await this.getStateAsync(`${camId}.ptz.speed`);
                     const speed = speedState?.val || 32;
                     await api.ptzCtrl(String(state.val), speed, ch);
@@ -424,11 +518,13 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
 
                 case 'ptz.goToPreset':
+                    if (!this.hasCapability(camId, 'ptz')) break;
                     await api.ptzCtrl('ToPos', 32, ch, Number(state.val));
                     await this.setStateAsync(id, state.val, true);
                     break;
 
                 case 'ptz.patrol':
+                    if (!this.hasCapability(camId, 'ptz')) break;
                     if (state.val) {
                         await api.ptzCtrl('StartPatrol', 0, ch);
                     } else {
@@ -438,6 +534,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     break;
 
                 case 'ptz.stop':
+                    if (!this.hasCapability(camId, 'ptz')) break;
                     if (state.val) {
                         await api.stopPtz(ch);
                         await this.setStateAsync(id, false, true);
