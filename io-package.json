@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "reolink-loxone",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "title": "Reolink Camera Integration for Loxone",
     "titleLang": {
       "en": "Reolink Camera Integration for Loxone",
@@ -64,6 +64,11 @@
     },
     "messagebox": true,
     "news": {
+      "1.1.5": {
+        "en": "Fix ESLint no-unused-vars: use channel in getRtspUrl (also fixes RTSP URL for NVR multi-channel)",
+        "de": "ESLint no-unused-vars behoben: channel in getRtspUrl genutzt (auch RTSP-URL für NVR korrigiert)",
+        "pl": "Naprawa ESLint no-unused-vars: uzycie channel w getRtspUrl (poprawia tez URL RTSP dla NVR)"
+      },
       "1.1.4": {
         "en": "Fix SetWhiteLed: remove 'action' field from body to exactly match Loxone working format",
         "de": "SetWhiteLed korrigiert: 'action'-Feld aus dem Body entfernt (exakt wie Loxone-Format)",
