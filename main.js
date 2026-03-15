@@ -180,6 +180,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             whiteLed: false,
             siren: false,
             aiDetection: false,
+            visitor: false,
+            doorbell: false,
             motionDetection: true,
             irLights: true,
             recording: true,
@@ -207,11 +209,22 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
 
             if (chn.alarmAudio && chn.alarmAudio.permit > 0 && chn.alarmAudio.ver > 0) caps.siren = true;
 
+            // Visitor AI detection (supported on doorbell cameras and some smart cameras)
+            if (chn.supportAiVisitor && chn.supportAiVisitor.ver > 0) caps.visitor = true;
+            if (chn.supportAiVisitor && chn.supportAiVisitor.permit > 0) caps.visitor = true;
+            // Physical doorbell button
+            if (ab.doorbell && ab.doorbell.ver > 0) caps.doorbell = true;
+            if (chn.supportDoorbell && chn.supportDoorbell.ver > 0) caps.doorbell = true;
+            // If doorbell hardware detected, probe visitor state
+            if (caps.doorbell) {
+                try { await api.getDoorbell(); caps.visitor = true; } catch (_) { /* skip */ }
+            }
+
             if (!caps.whiteLed && chn.supportWLLightAlarm && chn.supportWLLightAlarm.ver > 0) {
                 this.log.warn(`Camera "${camId}" has WhiteLed hardware but user needs admin-level permission (ledControl). Change user role in camera settings.`);
             }
 
-            this.log.info(`Camera "${camId}" capabilities: PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
+            this.log.info(`Camera "${camId}" capabilities: PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}, Visitor=${caps.visitor}, Doorbell=${caps.doorbell}`);
         } catch (e) {
             this.log.debug(`GetAbility unavailable for "${camId}", probing: ${e.message}`);
             try { await api.getPtzPresets(); caps.ptz = true; } catch (_) { /* skip */ }
@@ -269,6 +282,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         await this.createStateObj(camId, 'status.animalDetected', 'Animal detected (AI)', 'boolean', 'sensor.motion', false, false);
         await this.createStateObj(camId, 'status.faceDetected', 'Face detected (AI)', 'boolean', 'sensor.motion', false, false);
         await this.createStateObj(camId, 'status.lastMotionTime', 'Last motion timestamp', 'number', 'date', 0, false);
+
+        // Visitor / doorbell states (created for all cameras — visitor AI may activate even without physical doorbell)
+        await this.createStateObj(camId, 'status.visitorDetected', 'Visitor detected (AI / doorbell button)', 'boolean', 'sensor.motion', false, false);
+        await this.createStateObj(camId, 'status.doorbellRing', 'Doorbell button pressed (physical button)', 'boolean', 'sensor', false, false);
 
         // ── Streams channel
         await this.createChannel(camId, 'streams', 'Video Streams');
@@ -349,6 +366,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             await this.createStateObj(camId, 'loxone.personInputName', 'Loxone VI name for person', 'string', 'text', `Reolink_${camId}_AI_person`, true);
             await this.createStateObj(camId, 'loxone.vehicleInputName', 'Loxone VI name for vehicle', 'string', 'text', `Reolink_${camId}_AI_vehicle`, true);
             await this.createStateObj(camId, 'loxone.onlineInputName', 'Loxone VI name for status', 'string', 'text', `Reolink_${camId}_Online`, true);
+            await this.createStateObj(camId, 'loxone.visitorInputName', 'Loxone VI name for visitor/doorbell', 'string', 'text', `Reolink_${camId}_Visitor`, true);
         }
 
         this.log.debug(`Object tree created for camera "${camId}"`);
@@ -444,10 +462,13 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         vehicle: !!(aiData?.vehicle?.alarm_state),
                         animal: !!(aiData?.dog_cat?.alarm_state),
                         face: !!(aiData?.face?.alarm_state),
+                        visitor: !!(aiData?.visitor?.alarm_state),
                     };
 
                     for (const [type, detected] of Object.entries(detections)) {
-                        const stateId = `${camId}.status.${type}Detected`;
+                        const stateId = type === 'visitor'
+                            ? `${camId}.status.visitorDetected`
+                            : `${camId}.status.${type}Detected`;
                         const prevKey = `${camId}.ai.${type}`;
                         const prev = this.lastStates.get(prevKey);
 
@@ -456,12 +477,39 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         if (detected !== prev) {
                             this.lastStates.set(prevKey, detected);
                             if (this.loxoneBridge) {
-                                await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
+                                if (type === 'visitor') {
+                                    await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', detected ? 1 : 0);
+                                } else {
+                                    await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
+                                }
                             }
                         }
                     }
                 } catch (e) {
                     this.log.debug(`AI state unavailable for ${camId}: ${e.message}`);
+                }
+            }
+
+            // Doorbell physical button press (only for doorbell cameras)
+            if (this.hasCapability(camId, 'doorbell')) {
+                try {
+                    const dbRes = await api.getDoorbell(ch);
+                    const dbData = dbRes?.Doorbell || dbRes || {};
+                    // ring_state = 1 means button currently pressed
+                    const ringing = !!(dbData.ring_state === 1 || dbData.ring_state === true);
+                    const prevRing = this.lastStates.get(`${camId}.doorbellRing`);
+
+                    await this.setStateAsync(`${camId}.status.doorbellRing`, ringing, true);
+
+                    if (ringing !== prevRing) {
+                        this.lastStates.set(`${camId}.doorbellRing`, ringing);
+                        this.log.info(`Camera "${camId}": Doorbell ${ringing ? 'RINGING' : 'stopped'}`);
+                        if (this.loxoneBridge) {
+                            await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', ringing ? 1 : 0);
+                        }
+                    }
+                } catch (e) {
+                    this.log.debug(`Doorbell state unavailable for ${camId}: ${e.message}`);
                 }
             }
 
