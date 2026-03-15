@@ -5,6 +5,7 @@ const ReolinkAPI = require('./lib/reolink-api');
 const LoxoneBridge = require('./lib/loxone-bridge');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 
 /**
  * ioBroker.reolink-loxone - Full Reolink camera integration for ioBroker + Loxone
@@ -25,6 +26,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
 
         /** @type {Map<string, NodeJS.Timeout>} Fast WhiteLed poll timers for gate-trigger cameras */
         this.whiteLedTimers = new Map();
+
+        /** @type {http.Server|null} Webhook server for Reolink push alerts */
+        this.webhookServer = null;
+
+        /** @type {Map<string, object>} camId → camConfig, for webhook dispatch */
+        this.webhookCameras = new Map();
 
         /** @type {Map<string, object>} */
         this.lastStates = new Map();
@@ -54,6 +61,11 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 log: this.log,
             });
             this.log.info(`Loxone bridge initialized: ${this.config.loxoneHost} (mode: ${this.config.loxoneMode})`);
+        }
+
+        // Start webhook server if configured
+        if (this.config.webhookEnabled && this.config.webhookPort) {
+            this.startWebhookServer(this.config.webhookPort);
         }
 
         // Initialize cameras
@@ -100,6 +112,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
             }
             this.cameras.clear();
+
+            // Stop webhook server
+            if (this.webhookServer) {
+                this.webhookServer.close();
+                this.webhookServer = null;
+            }
 
             // Destroy Loxone bridge
             if (this.loxoneBridge) {
@@ -152,6 +170,25 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }, pollInterval);
             this.pollingTimers.set(camId, timer);
 
+            // Register camera for webhook dispatch
+            this.webhookCameras.set(camId, camConfig);
+
+            // Auto-configure push URL on camera if webhook is enabled
+            if (this.config.webhookEnabled && this.config.webhookHost && this.config.webhookPort) {
+                const webhookUrl = `http://${this.config.webhookHost}:${this.config.webhookPort}/reolink/${camId}`;
+                try {
+                    await api.setPush({
+                        channel: camConfig.channel || 0,
+                        enable: 1,
+                        url: webhookUrl,
+                        scheduleEnable: 0,
+                    });
+                    this.log.info(`Camera "${camId}": push URL configured → ${webhookUrl}`);
+                } catch (e) {
+                    this.log.warn(`Camera "${camId}": could not auto-configure push URL (${e.message}). Set manually in camera web UI: ${webhookUrl}`);
+                }
+            }
+
             // Start fast WhiteLed poll (1s) for gate-trigger cameras
             if (camConfig.whiteLedGateTrigger && this.hasCapability(camId, 'whiteLed')) {
                 const wlTimer = setInterval(async () => {
@@ -165,6 +202,173 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         } catch (err) {
             this.log.error(`Failed to initialize camera "${camId}": ${err.message}`);
             await this.setStateAsync(`${camId}.info.connection`, false, true);
+        }
+    }
+
+    // ─── WEBHOOK SERVER ───────────────────────────────────────────────
+
+    startWebhookServer(port) {
+        this.webhookServer = http.createServer((req, res) => {
+            // Accept POST /reolink/<camId>
+            if (req.method !== 'POST') {
+                res.writeHead(405);
+                res.end();
+                return;
+            }
+
+            // Extract camId from URL: /reolink/<camId>
+            const match = req.url && req.url.match(/^\/reolink\/([^/]+)/);
+            const camId = match ? decodeURIComponent(match[1]) : null;
+
+            let body = '';
+            req.on('data', chunk => { body += chunk.toString(); });
+            req.on('end', () => {
+                res.writeHead(200);
+                res.end('OK');
+                this.handleWebhookEvent(camId, body, req.headers);
+            });
+        });
+
+        this.webhookServer.on('error', (e) => {
+            this.log.error(`Webhook server error: ${e.message}`);
+        });
+
+        this.webhookServer.listen(port, () => {
+            this.log.info(`Webhook server listening on port ${port} — cameras will push events here`);
+        });
+    }
+
+    /**
+     * Process incoming push event from Reolink camera.
+     * Reolink sends JSON with event type and alarm state.
+     */
+    async handleWebhookEvent(camId, body, headers) {
+        try {
+            this.log.debug(`Webhook event from "${camId}": ${body.slice(0, 200)}`);
+
+            // Try to find camId from body if not in URL
+            let payload = {};
+            try { payload = JSON.parse(body); } catch (_) { /* not JSON — try to extract info */ }
+
+            // Reolink payload formats vary by firmware:
+            // Format A (newer): { "cmd": "NotifyAlarmEvent", "param": { "AlarmEvent": { "channel": 0, "type": "visitor", "alarm_state": 1 } } }
+            // Format B (older): array [ { "cmd": "...", ... } ]
+            // Format C: query string / form body
+
+            const events = this.parseReolinkPushPayload(payload, body);
+
+            // If no camId from URL, try matching by camera name in payload
+            let resolvedCamId = camId;
+            if (!resolvedCamId || !this.webhookCameras.has(resolvedCamId)) {
+                for (const [id, cfg] of this.webhookCameras) {
+                    if (events.cameraName && (cfg.name === events.cameraName || id === events.cameraName)) {
+                        resolvedCamId = id;
+                        break;
+                    }
+                }
+            }
+
+            if (!resolvedCamId || !this.webhookCameras.has(resolvedCamId)) {
+                this.log.debug(`Webhook: unknown camera "${resolvedCamId}", ignoring`);
+                return;
+            }
+
+            const camConfig = this.webhookCameras.get(resolvedCamId);
+
+            // Process each event type
+            for (const evt of events.list) {
+                await this.applyWebhookEvent(resolvedCamId, camConfig, evt.type, evt.active);
+            }
+
+        } catch (e) {
+            this.log.debug(`Webhook processing error: ${e.message}`);
+        }
+    }
+
+    parseReolinkPushPayload(payload, rawBody) {
+        const result = { list: [], cameraName: null };
+
+        // Array of commands (e.g. Reolink batch)
+        const cmds = Array.isArray(payload) ? payload : [payload];
+
+        for (const cmd of cmds) {
+            if (!cmd || typeof cmd !== 'object') continue;
+
+            // NotifyAlarmEvent format
+            const alarm = cmd.param?.AlarmEvent || cmd.AlarmEvent || cmd.alarm;
+            if (alarm) {
+                result.cameraName = alarm.name || alarm.camera_name || null;
+                const active = !!(alarm.alarm_state === 1 || alarm.alarm_state === true || alarm.active === 1);
+                const type = (alarm.type || alarm.event_type || '').toLowerCase();
+                if (type) result.list.push({ type, active });
+                continue;
+            }
+
+            // Simple flat format: { event: "visitor", state: 1, name: "..." }
+            if (cmd.event || cmd.type) {
+                result.cameraName = cmd.name || cmd.camera_name || null;
+                const type = (cmd.event || cmd.type || '').toLowerCase();
+                const active = !!(cmd.state === 1 || cmd.alarm_state === 1 || cmd.active === 1);
+                if (type) result.list.push({ type, active });
+            }
+        }
+
+        // Fallback: if body contains "visitor" keyword, treat as visitor event
+        if (result.list.length === 0 && rawBody.toLowerCase().includes('visitor')) {
+            result.list.push({ type: 'visitor', active: true });
+        }
+
+        return result;
+    }
+
+    async applyWebhookEvent(camId, camConfig, type, active) {
+        this.log.info(`Camera "${camId}" webhook event: ${type} = ${active}`);
+
+        switch (type) {
+            case 'visitor':
+            case 'doorbell':
+            case 'ring':
+                await this.setStateAsync(`${camId}.status.visitorDetected`, active, true);
+                await this.setStateAsync(`${camId}.status.doorbellRing`, active, true);
+                if (this.loxoneBridge) {
+                    await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', active ? 1 : 0);
+                }
+                break;
+
+            case 'md':
+            case 'motion':
+                await this.setStateAsync(`${camId}.status.motionDetected`, active, true);
+                if (active) await this.setStateAsync(`${camId}.status.lastMotionTime`, Date.now(), true);
+                if (this.loxoneBridge) {
+                    await this.loxoneBridge.sendMotionEvent(camConfig.name || camId, active);
+                }
+                break;
+
+            case 'people':
+            case 'person':
+                await this.setStateAsync(`${camId}.status.personDetected`, active, true);
+                if (this.loxoneBridge) {
+                    await this.loxoneBridge.sendAiEvent(camConfig.name || camId, 'person', active);
+                }
+                break;
+
+            case 'vehicle':
+                await this.setStateAsync(`${camId}.status.vehicleDetected`, active, true);
+                if (this.loxoneBridge) {
+                    await this.loxoneBridge.sendAiEvent(camConfig.name || camId, 'vehicle', active);
+                }
+                break;
+
+            case 'dog_cat':
+            case 'animal':
+                await this.setStateAsync(`${camId}.status.animalDetected`, active, true);
+                if (this.loxoneBridge) {
+                    await this.loxoneBridge.sendAiEvent(camConfig.name || camId, 'animal', active);
+                }
+                break;
+
+            default:
+                this.log.debug(`Camera "${camId}" unhandled webhook event type: ${type}`);
         }
     }
 

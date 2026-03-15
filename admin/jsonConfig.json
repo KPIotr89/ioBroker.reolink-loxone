@@ -173,6 +173,48 @@
         }
       }
     },
+    "_tabWebhook": {
+      "type": "panel",
+      "label": "Webhook",
+      "icon": "wifi",
+      "items": {
+        "webhookEnabled": {
+          "type": "checkbox",
+          "label": "Enable webhook server (Reolink push alerts)",
+          "default": false,
+          "help": "Start an HTTP server that receives push events from Reolink cameras — no polling needed for doorbell/visitor events"
+        },
+        "webhookPort": {
+          "type": "number",
+          "label": "Webhook port",
+          "default": 7777,
+          "min": 1024,
+          "max": 65535,
+          "hidden": "!data.webhookEnabled",
+          "help": "Port the adapter listens on for camera push events (must be reachable from cameras)"
+        },
+        "webhookHost": {
+          "type": "text",
+          "label": "ioBroker IP address (visible to cameras)",
+          "placeholder": "192.168.1.100",
+          "hidden": "!data.webhookEnabled",
+          "help": "IP of the ioBroker machine — cameras will POST alerts here. Leave empty to configure push URL manually in camera web UI."
+        },
+        "_webhookInfo": {
+          "type": "staticText",
+          "label": "",
+          "text": "**How it works:**\n\nWhen both IP and port are set, the adapter automatically configures each camera to send push alerts via SetPushV20.\n\nCameras will POST to:\n`http://<ioBroker-IP>:<port>/reolink/<CameraName>`\n\nEvents received: visitor (doorbell button), motion, person, vehicle, animal.\n\n**Manual setup** (if auto-config fails):\nIn the camera web UI → Alarm → Push → enable and set URL to the address above.",
+          "hidden": "!data.webhookEnabled",
+          "style": {
+            "marginTop": "16px",
+            "padding": "12px",
+            "backgroundColor": "#f5f5f5",
+            "borderRadius": "8px",
+            "fontSize": "13px"
+          }
+        }
+      }
+    },
     "_tabAdvanced": {
       "type": "panel",
       "label": "Advanced",
