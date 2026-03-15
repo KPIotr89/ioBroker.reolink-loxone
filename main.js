@@ -39,6 +39,9 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         /** @type {Map<string, object>} Camera capabilities from GetAbility */
         this.capabilities = new Map();
 
+        /** @type {Set<string>} Guards against concurrent polling calls per camera */
+        this.pollingActive = new Set();
+
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
         this.on('unload', this.onUnload.bind(this));
@@ -608,6 +611,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
     // ─── STATUS POLLING ───────────────────────────────────────────────
 
     async updateCameraStatus(camId, api, camConfig) {
+        const lockKey = `main_${camId}`;
+        if (this.pollingActive.has(lockKey)) {
+            this.log.debug(`Skipping poll for "${camId}" — previous cycle still running`);
+            return;
+        }
+        this.pollingActive.add(lockKey);
         try {
             const ch = camConfig.channel || 0;
 
@@ -774,6 +783,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             } catch (e) {
                 this.log.debug(`Re-login failed for ${camId}: ${e.message}`);
             }
+        } finally {
+            this.pollingActive.delete(`main_${camId}`);
         }
     }
 
@@ -784,6 +795,9 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
      * Detects brief ON→OFF flash (≤3s) = intentional gate trigger signal.
      */
     async pollWhiteLedGateTrigger(camId, api, camConfig) {
+        const lockKey = `wl_${camId}`;
+        if (this.pollingActive.has(lockKey)) return; // previous call still in flight — skip
+        this.pollingActive.add(lockKey);
         try {
             const ch = camConfig.channel || 0;
             const wlRes = await api.getWhiteLed(ch);
@@ -825,6 +839,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
         } catch (e) {
             this.log.debug(`WhiteLed fast-poll error for ${camId}: ${e.message}`);
+        } finally {
+            this.pollingActive.delete(`wl_${camId}`);
         }
     }
 
