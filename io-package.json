@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "reolink-loxone",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "title": "Reolink Camera Integration for Loxone",
     "titleLang": {
       "en": "Reolink Camera Integration for Loxone",
@@ -64,6 +64,11 @@
     },
     "messagebox": true,
     "news": {
+      "1.1.4": {
+        "en": "Fix SetWhiteLed: remove 'action' field from body to exactly match Loxone working format",
+        "de": "SetWhiteLed korrigiert: 'action'-Feld aus dem Body entfernt (exakt wie Loxone-Format)",
+        "pl": "Naprawa SetWhiteLed: usunieto pole 'action' z body (dokladnie jak format Loxone)"
+      },
       "1.1.3": {
         "en": "Fix SetWhiteLed URL: add channel as URL query param (matching Loxone format: /api.cgi?cmd=SetWhiteLed&channel=0&user=...)",
         "de": "SetWhiteLed URL korrigiert: channel als URL-Parameter hinzugefügt",

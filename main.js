@@ -499,7 +499,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         try {
                             await api._cmdDirect('AudioAlarmPlay', {
                                 AudioAlarmPlay: { channel: ch, manualSwitch: 1, duration: 5 },
-                            }, 0, { channel: ch });
+                            }, null, { channel: ch });
                             this.log.info(`Siren triggered on camera "${camId}"`);
                         } catch (sirenErr) {
                             this.log.debug(`Camera "${camId}" Siren not supported: ${sirenErr.message}`);
