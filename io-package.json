@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "reolink-loxone",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "title": "Reolink Camera Integration for Loxone",
     "titleLang": {
       "en": "Reolink Camera Integration for Loxone",
@@ -64,6 +64,11 @@
     },
     "messagebox": true,
     "news": {
+      "1.2.0": {
+        "en": "Fix SetWhiteLed: read current config from camera, permission detection (ledControl), fix CI tests",
+        "de": "SetWhiteLed korrigiert: Konfiguration von Kamera lesen, Berechtigungserkennung (ledControl), CI-Tests repariert",
+        "pl": "Naprawa SetWhiteLed: odczyt konfiguracji z kamery, wykrywanie uprawnien (ledControl), naprawa testow CI"
+      },
       "1.1.5": {
         "en": "Fix ESLint no-unused-vars: use channel in getRtspUrl (also fixes RTSP URL for NVR multi-channel)",
         "de": "ESLint no-unused-vars behoben: channel in getRtspUrl genutzt (auch RTSP-URL für NVR korrigiert)",

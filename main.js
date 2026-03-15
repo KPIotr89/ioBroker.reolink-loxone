@@ -156,14 +156,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
      * This prevents sending unsupported commands (e.g. WhiteLed on CX810/CX820)
      */
     async detectCapabilities(camId, api) {
-        // Default: assume most features are available.
-        // SetWhiteLed on CX-series cameras requires direct auth + full payload —
-        // GetWhiteLed/GetAbility may report "ability error" even though the hardware
-        // supports it. We therefore default whiteLed=true and catch errors at runtime.
         const caps = {
             ptz: false,
-            whiteLed: true,   // assume ON — SetWhiteLed works via direct auth
-            siren: true,      // assume ON — try at runtime, catch if unsupported
+            whiteLed: false,
+            siren: false,
             aiDetection: false,
             motionDetection: true,
             irLights: true,
@@ -174,25 +170,46 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         try {
             const ability = await api.getAbility();
             const ab = ability?.Ability || ability || {};
+            const chn = (ab.abilityChn && ab.abilityChn[0]) || {};
 
             // PTZ support
             if (ab.ptz && ab.ptz.ver > 0) caps.ptz = true;
             if (ab.ptzCtrl && ab.ptzCtrl.ver > 0) caps.ptz = true;
+            if (chn.ptzCtrl && chn.ptzCtrl.ver > 0) caps.ptz = true;
 
-            // AI detection
+            // AI detection — check channel abilities
+            if (chn.aiTrack && chn.aiTrack.ver > 0) caps.aiDetection = true;
             if (ab.aiTrack && ab.aiTrack.ver > 0) caps.aiDetection = true;
-            if (ab.ai && ab.ai.ver > 0) caps.aiDetection = true;
 
-            // Only disable whiteLed/siren if GetAbility explicitly reports ver=0
-            if (ab.whiteLed && ab.whiteLed.ver === 0) caps.whiteLed = false;
-            if (ab.audioAlarm && ab.audioAlarm.ver === 0) caps.siren = false;
+            // WhiteLed — check if user has ledControl permission (permit > 0)
+            // CX810/CX820 require admin-level user for SetWhiteLed
+            if (chn.ledControl && chn.ledControl.permit > 0) {
+                caps.whiteLed = true;
+            } else if (chn.supportWLLightAlarm && chn.supportWLLightAlarm.ver > 0) {
+                // Camera supports WL but user may lack ledControl — probe with GetWhiteLed
+                try {
+                    await api.getWhiteLed();
+                    caps.whiteLed = true;
+                } catch (_) { /* not available */ }
+            }
+
+            // Siren / AudioAlarm
+            if (chn.alarmAudio && chn.alarmAudio.permit > 0 && chn.alarmAudio.ver > 0) {
+                caps.siren = true;
+            }
+
+            // Warn if WhiteLed hardware exists but user lacks permission
+            if (!caps.whiteLed && chn.supportWLLightAlarm && chn.supportWLLightAlarm.ver > 0) {
+                this.log.warn(`Camera "${camId}" has WhiteLed hardware but user lacks ledControl permission. Change user to admin level in camera settings.`);
+            }
 
             this.log.info(`Camera "${camId}" capabilities: PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
         } catch (e) {
-            // GetAbility not available — probe PTZ and AI, keep whiteLed/siren defaults
-            this.log.debug(`GetAbility unavailable for "${camId}", probing PTZ/AI: ${e.message}`);
-            try { await api.getPtzPresets(); caps.ptz = true; } catch (_) { /* not supported */ }
-            try { await api.getAiState(); caps.aiDetection = true; } catch (_) { /* not supported */ }
+            // GetAbility not available — probe each feature
+            this.log.debug(`GetAbility unavailable for "${camId}", probing: ${e.message}`);
+            try { await api.getPtzPresets(); caps.ptz = true; } catch (_) { /* skip */ }
+            try { await api.getAiState(); caps.aiDetection = true; } catch (_) { /* skip */ }
+            try { await api.getWhiteLed(); caps.whiteLed = true; } catch (_) { /* skip */ }
 
             this.log.info(`Camera "${camId}" capabilities (probed): PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
         }
