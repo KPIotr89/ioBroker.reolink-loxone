@@ -298,7 +298,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             } else {
                 // Body received but couldn't parse — log it so user can report the format
                 this.log.warn(`Camera "${resolvedCamId}": webhook body not recognized — ignoring. Raw body: ${body.slice(0, 500)}`);
-                this.log.warn(`Please report this to fix parsing. No event fired.`);
+                this.log.warn('Please report this to fix parsing. No event fired.');
             }
 
         } catch (e) {
