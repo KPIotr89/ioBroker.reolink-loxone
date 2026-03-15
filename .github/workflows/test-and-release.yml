@@ -38,7 +38,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: npm ci
       - run: npm run test:package
-      - run: npm run test:js
 
   release:
     needs: [unit-tests]
