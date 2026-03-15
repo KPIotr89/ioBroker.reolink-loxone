@@ -156,12 +156,16 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
      * This prevents sending unsupported commands (e.g. WhiteLed on CX810/CX820)
      */
     async detectCapabilities(camId, api) {
+        // Default: assume most features are available.
+        // SetWhiteLed on CX-series cameras requires direct auth + full payload —
+        // GetWhiteLed/GetAbility may report "ability error" even though the hardware
+        // supports it. We therefore default whiteLed=true and catch errors at runtime.
         const caps = {
             ptz: false,
-            whiteLed: false,
-            siren: false,
+            whiteLed: true,   // assume ON — SetWhiteLed works via direct auth
+            siren: true,      // assume ON — try at runtime, catch if unsupported
             aiDetection: false,
-            motionDetection: true, // assume all cameras support this
+            motionDetection: true,
             irLights: true,
             recording: true,
             snapshot: true,
@@ -175,28 +179,20 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             if (ab.ptz && ab.ptz.ver > 0) caps.ptz = true;
             if (ab.ptzCtrl && ab.ptzCtrl.ver > 0) caps.ptz = true;
 
-            // White LED / spotlight
-            if (ab.whiteLed && ab.whiteLed.ver > 0) caps.whiteLed = true;
-            if (ab.floodLight && ab.floodLight.ver > 0) caps.whiteLed = true;
-            if (ab.ledControl && ab.ledControl.ver > 0) caps.whiteLed = true;
-
-            // Siren / audio alarm
-            if (ab.audioAlarm && ab.audioAlarm.ver > 0) caps.siren = true;
-            if (ab.alarmAudio && ab.alarmAudio.ver > 0) caps.siren = true;
-
             // AI detection
             if (ab.aiTrack && ab.aiTrack.ver > 0) caps.aiDetection = true;
             if (ab.ai && ab.ai.ver > 0) caps.aiDetection = true;
 
+            // Only disable whiteLed/siren if GetAbility explicitly reports ver=0
+            if (ab.whiteLed && ab.whiteLed.ver === 0) caps.whiteLed = false;
+            if (ab.audioAlarm && ab.audioAlarm.ver === 0) caps.siren = false;
+
             this.log.info(`Camera "${camId}" capabilities: PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
         } catch (e) {
-            this.log.debug(`GetAbility unavailable for "${camId}", using probe detection: ${e.message}`);
-
-            // Fallback: probe individual commands (using direct auth)
-            try { await api._cmdDirect('GetWhiteLed', { channel: 0 }); caps.whiteLed = true; } catch (_) { /* not supported */ }
-            try { await api.getAudioAlarmState(); caps.siren = true; } catch (_) { /* not supported */ }
-            try { await api.getAiState(); caps.aiDetection = true; } catch (_) { /* not supported */ }
+            // GetAbility not available — probe PTZ and AI, keep whiteLed/siren defaults
+            this.log.debug(`GetAbility unavailable for "${camId}", probing PTZ/AI: ${e.message}`);
             try { await api.getPtzPresets(); caps.ptz = true; } catch (_) { /* not supported */ }
+            try { await api.getAiState(); caps.aiDetection = true; } catch (_) { /* not supported */ }
 
             this.log.info(`Camera "${camId}" capabilities (probed): PTZ=${caps.ptz}, WhiteLED=${caps.whiteLed}, Siren=${caps.siren}, AI=${caps.aiDetection}`);
         }
@@ -478,29 +474,37 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
 
                 case 'control.whiteLed':
-                    if (!this.hasCapability(camId, 'whiteLed')) {
-                        this.log.debug(`Camera "${camId}" does not support White LED — skipping`);
-                        break;
+                    try {
+                        await api.setWhiteLed({
+                            channel: ch,
+                            state: state.val ? 1 : 0,
+                            mode: 0,
+                            bright: 100,
+                        });
+                        this.log.info(`White LED ${state.val ? 'ON' : 'OFF'} for camera "${camId}"`);
+                        await this.setStateAsync(id, !!state.val, true);
+                        // Confirm capability is active
+                        const c = this.capabilities.get(camId) || {};
+                        c.whiteLed = true;
+                        this.capabilities.set(camId, c);
+                    } catch (wlErr) {
+                        this.log.debug(`Camera "${camId}" SetWhiteLed not supported: ${wlErr.message}`);
+                        const c = this.capabilities.get(camId) || {};
+                        c.whiteLed = false;
+                        this.capabilities.set(camId, c);
                     }
-                    await api.setWhiteLed({
-                        channel: ch,
-                        state: state.val ? 1 : 0,
-                        mode: 0,
-                        bright: 100,
-                    });
-                    this.log.info(`White LED ${state.val ? 'ON' : 'OFF'} for camera "${camId}"`);
-                    await this.setStateAsync(id, !!state.val, true);
                     break;
 
                 case 'control.siren':
-                    if (!this.hasCapability(camId, 'siren')) {
-                        this.log.debug(`Camera "${camId}" does not support Siren — skipping`);
-                        break;
-                    }
                     if (state.val) {
-                        await api._cmdDirect('AudioAlarmPlay', {
-                            AudioAlarmPlay: { channel: ch, manualSwitch: 1, duration: 5 },
-                        }, 0);
+                        try {
+                            await api._cmdDirect('AudioAlarmPlay', {
+                                AudioAlarmPlay: { channel: ch, manualSwitch: 1, duration: 5 },
+                            }, 0);
+                            this.log.info(`Siren triggered on camera "${camId}"`);
+                        } catch (sirenErr) {
+                            this.log.debug(`Camera "${camId}" Siren not supported: ${sirenErr.message}`);
+                        }
                         await this.setStateAsync(id, false, true);
                     }
                     break;
