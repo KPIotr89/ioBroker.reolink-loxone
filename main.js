@@ -462,13 +462,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         vehicle: !!(aiData?.vehicle?.alarm_state),
                         animal: !!(aiData?.dog_cat?.alarm_state),
                         face: !!(aiData?.face?.alarm_state),
-                        visitor: !!(aiData?.visitor?.alarm_state),
                     };
 
                     for (const [type, detected] of Object.entries(detections)) {
-                        const stateId = type === 'visitor'
-                            ? `${camId}.status.visitorDetected`
-                            : `${camId}.status.${type}Detected`;
+                        const stateId = `${camId}.status.${type}Detected`;
                         const prevKey = `${camId}.ai.${type}`;
                         const prev = this.lastStates.get(prevKey);
 
@@ -477,11 +474,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         if (detected !== prev) {
                             this.lastStates.set(prevKey, detected);
                             if (this.loxoneBridge) {
-                                if (type === 'visitor') {
-                                    await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', detected ? 1 : 0);
-                                } else {
-                                    await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
-                                }
+                                await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
                             }
                         }
                     }
@@ -491,6 +484,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
 
             // Doorbell physical button press (only for doorbell cameras)
+            // visitor = status when button is pressed — NOT an AI detection
             if (this.hasCapability(camId, 'doorbell')) {
                 try {
                     const dbRes = await api.getDoorbell(ch);
@@ -499,11 +493,13 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     const ringing = !!(dbData.ring_state === 1 || dbData.ring_state === true);
                     const prevRing = this.lastStates.get(`${camId}.doorbellRing`);
 
+                    // Both states reflect the same thing: button pressed = visitor
                     await this.setStateAsync(`${camId}.status.doorbellRing`, ringing, true);
+                    await this.setStateAsync(`${camId}.status.visitorDetected`, ringing, true);
 
                     if (ringing !== prevRing) {
                         this.lastStates.set(`${camId}.doorbellRing`, ringing);
-                        this.log.info(`Camera "${camId}": Doorbell ${ringing ? 'RINGING' : 'stopped'}`);
+                        this.log.info(`Camera "${camId}": Doorbell button ${ringing ? 'PRESSED (visitor)' : 'released'}`);
                         if (this.loxoneBridge) {
                             await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', ringing ? 1 : 0);
                         }
