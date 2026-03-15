@@ -246,24 +246,13 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
      */
     async handleWebhookEvent(camId, body, headers, sourceIp) {
         try {
-            this.log.debug(`Webhook event from "${camId || sourceIp}": ${body.slice(0, 300)}`);
+            this.log.debug(`Webhook POST from "${camId || sourceIp}": ${body.slice(0, 300)}`);
 
-            let payload = {};
-            try { payload = JSON.parse(body); } catch (_) { /* not JSON */ }
-
-            const events = this.parseReolinkPushPayload(payload, body);
-
-            // Resolve camera: 1) camId from URL, 2) camera name from payload, 3) source IP
+            // Resolve camera: 1) camId from URL path, 2) source IP
             let resolvedCamId = (camId && this.webhookCameras.has(camId)) ? camId : null;
 
             if (!resolvedCamId) {
                 for (const [id, cfg] of this.webhookCameras) {
-                    // Match by camera name in payload
-                    if (events.cameraName && (cfg.name === events.cameraName || id === events.cameraName)) {
-                        resolvedCamId = id;
-                        break;
-                    }
-                    // Match by source IP address
                     if (sourceIp && cfg.host === sourceIp) {
                         resolvedCamId = id;
                         break;
@@ -272,15 +261,33 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
 
             if (!resolvedCamId) {
-                this.log.warn(`Webhook: cannot identify camera (url="${camId}", ip="${sourceIp}"). Configure URL as http://<ioBroker-IP>:${this.config.webhookPort}/reolink/<CameraName>`);
+                this.log.warn(`Webhook: cannot identify camera (url="${camId}", ip="${sourceIp}"). Set URL to http://<ioBroker-IP>:${this.config.webhookPort}/reolink/<CameraName>`);
                 return;
             }
 
             const camConfig = this.webhookCameras.get(resolvedCamId);
 
-            // Process each event type
-            for (const evt of events.list) {
-                await this.applyWebhookEvent(resolvedCamId, camConfig, evt.type, evt.active);
+            // Try to parse body for specific event type (motion, AI, etc.)
+            // If body is empty or unparseable → treat the POST itself as visitor/doorbell event
+            // (same logic as Node-RED: any POST to /doorbell = ring)
+            let payload = {};
+            try { payload = JSON.parse(body); } catch (_) { /* not JSON */ }
+
+            const events = this.parseReolinkPushPayload(payload, body);
+
+            if (events.list.length > 0) {
+                // Parsed specific event(s) — handle each
+                for (const evt of events.list) {
+                    await this.applyWebhookEvent(resolvedCamId, camConfig, evt.type, evt.active);
+                }
+            } else {
+                // No parseable event — the POST itself is the trigger (doorbell/visitor)
+                // Behaves like Node-RED trigger 1000ms: set true, auto-reset after 1s
+                this.log.info(`Camera "${resolvedCamId}": webhook POST received → visitor/doorbell event`);
+                await this.applyWebhookEvent(resolvedCamId, camConfig, 'visitor', true);
+                setTimeout(() => {
+                    this.applyWebhookEvent(resolvedCamId, camConfig, 'visitor', false).catch(() => { /* ignore */ });
+                }, 1000);
             }
 
         } catch (e) {
