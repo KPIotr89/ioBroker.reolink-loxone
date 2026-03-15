@@ -279,6 +279,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         if (this.hasCapability(camId, 'whiteLed')) {
             await this.createStateObj(camId, 'control.whiteLed', 'White LED / spotlight', 'boolean', 'switch', false, true);
             await this.createStateObj(camId, 'status.whiteLed', 'White LED state (live from camera)', 'boolean', 'sensor', false, false);
+            await this.createStateObj(camId, 'status.whiteLedTrigger', 'Gate trigger: brief WhiteLed flash detected (≤3s ON→OFF)', 'boolean', 'sensor', false, false);
         }
 
         // Only create siren control if camera supports it
@@ -362,6 +363,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 this.log.debug(`Motion state unavailable for ${camId}: ${e.message}`);
             }
             // WhiteLed state polling — detects changes from Reolink app or other sources
+            // Knock-pattern: brief ON→OFF within ≤3 seconds = gate trigger signal
             if (this.hasCapability(camId, 'whiteLed')) {
                 try {
                     const wlRes = await api.getWhiteLed(ch);
@@ -376,7 +378,29 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     if (wlState !== prevWl) {
                         this.lastStates.set(`${camId}.whiteLed`, wlState);
                         this.log.debug(`Camera "${camId}" WhiteLed changed: ${wlState ? 'ON' : 'OFF'}`);
-                        // Send to Loxone so gate automation can be triggered there too
+
+                        if (wlState) {
+                            // LED turned ON — record the timestamp
+                            this.lastStates.set(`${camId}.whiteLedOnTime`, Date.now());
+                        } else {
+                            // LED turned OFF — check if this was a brief flash (≤3 seconds)
+                            const onTime = this.lastStates.get(`${camId}.whiteLedOnTime`);
+                            if (onTime && (Date.now() - onTime) <= 3000) {
+                                this.log.info(`Camera "${camId}": WhiteLed knock-pattern detected (${Date.now() - onTime}ms) → gate trigger!`);
+                                await this.setStateAsync(`${camId}.status.whiteLedTrigger`, true, true);
+                                // Auto-reset trigger state after 1 second
+                                setTimeout(() => {
+                                    this.setStateAsync(`${camId}.status.whiteLedTrigger`, false, true).catch(() => { /* ignore */ });
+                                }, 1000);
+                                // Send gate trigger event to Loxone
+                                if (this.loxoneBridge) {
+                                    await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'gate_trigger', 1);
+                                }
+                            }
+                            this.lastStates.delete(`${camId}.whiteLedOnTime`);
+                        }
+
+                        // Send whiteLed state change to Loxone
                         if (this.loxoneBridge) {
                             await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'whiteLed', wlState ? 1 : 0);
                         }
