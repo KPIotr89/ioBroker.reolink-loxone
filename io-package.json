@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "reolink-loxone",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "title": "Reolink Camera Integration for Loxone",
     "titleLang": {
       "en": "Reolink Camera Integration for Loxone",
@@ -64,6 +64,11 @@
     },
     "messagebox": true,
     "news": {
+      "1.1.0": {
+        "en": "Capability detection (GetAbility): adapter auto-detects WhiteLed/PTZ/Siren support; fixed SetWhiteLed to use direct auth with full payload",
+        "de": "Fähigkeitserkennung (GetAbility): Adapter erkennt WhiteLed/PTZ/Sirene automatisch; SetWhiteLed mit direkter Authentifizierung korrigiert",
+        "pl": "Wykrywanie mozliwosci (GetAbility): adapter auto-wykrywa WhiteLed/PTZ/Siren; naprawiono SetWhiteLed z bezposrednim auth"
+      },
       "1.0.0": {
         "en": "Initial release - Full Reolink API support with Loxone bridge",
         "de": "Erstveröffentlichung - Volle Reolink API-Unterstützung mit Loxone Bridge",

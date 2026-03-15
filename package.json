@@ -1,6 +1,6 @@
 {
   "name": "iobroker.reolink-loxone",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Reolink camera integration for ioBroker with Loxone bridge support",
   "author": {
     "name": "Piotr Kalbarczyk",
