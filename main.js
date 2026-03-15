@@ -358,34 +358,34 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
 
             // AI detection state (only if camera supports AI)
-            if (!this.hasCapability(camId, 'aiDetection')) {
-                // Skip AI polling for cameras without AI support
-            } else try {
-                const aiState = await api.getAiState(ch);
-                const aiData = aiState?.AiState || aiState;
-                const detections = {
-                    person: !!(aiData?.people?.alarm_state || aiData?.dog_cat?.people_state),
-                    vehicle: !!(aiData?.vehicle?.alarm_state),
-                    animal: !!(aiData?.dog_cat?.alarm_state),
-                    face: !!(aiData?.face?.alarm_state),
-                };
+            if (this.hasCapability(camId, 'aiDetection')) {
+                try {
+                    const aiState = await api.getAiState(ch);
+                    const aiData = aiState?.AiState || aiState;
+                    const detections = {
+                        person: !!(aiData?.people?.alarm_state || aiData?.dog_cat?.people_state),
+                        vehicle: !!(aiData?.vehicle?.alarm_state),
+                        animal: !!(aiData?.dog_cat?.alarm_state),
+                        face: !!(aiData?.face?.alarm_state),
+                    };
 
-                for (const [type, detected] of Object.entries(detections)) {
-                    const stateId = `${camId}.status.${type}Detected`;
-                    const prevKey = `${camId}.ai.${type}`;
-                    const prev = this.lastStates.get(prevKey);
+                    for (const [type, detected] of Object.entries(detections)) {
+                        const stateId = `${camId}.status.${type}Detected`;
+                        const prevKey = `${camId}.ai.${type}`;
+                        const prev = this.lastStates.get(prevKey);
 
-                    await this.setStateAsync(stateId, detected, true);
+                        await this.setStateAsync(stateId, detected, true);
 
-                    if (detected !== prev) {
-                        this.lastStates.set(prevKey, detected);
-                        if (this.loxoneBridge) {
-                            await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
+                        if (detected !== prev) {
+                            this.lastStates.set(prevKey, detected);
+                            if (this.loxoneBridge) {
+                                await this.loxoneBridge.sendAiEvent(camConfig.name || camId, type, detected);
+                            }
                         }
                     }
+                } catch (e) {
+                    this.log.debug(`AI state unavailable for ${camId}: ${e.message}`);
                 }
-            } catch (e) {
-                this.log.debug(`AI state unavailable for ${camId}: ${e.message}`);
             }
 
             // Connection alive
@@ -473,7 +473,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     break;
                 }
 
-                case 'control.whiteLed':
+                case 'control.whiteLed': {
+                    const caps = this.capabilities.get(camId) || {};
                     try {
                         await api.setWhiteLed({
                             channel: ch,
@@ -483,24 +484,22 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                         });
                         this.log.info(`White LED ${state.val ? 'ON' : 'OFF'} for camera "${camId}"`);
                         await this.setStateAsync(id, !!state.val, true);
-                        // Confirm capability is active
-                        const c = this.capabilities.get(camId) || {};
-                        c.whiteLed = true;
-                        this.capabilities.set(camId, c);
+                        caps.whiteLed = true;
+                        this.capabilities.set(camId, caps);
                     } catch (wlErr) {
                         this.log.debug(`Camera "${camId}" SetWhiteLed not supported: ${wlErr.message}`);
-                        const c = this.capabilities.get(camId) || {};
-                        c.whiteLed = false;
-                        this.capabilities.set(camId, c);
+                        caps.whiteLed = false;
+                        this.capabilities.set(camId, caps);
                     }
                     break;
+                }
 
                 case 'control.siren':
                     if (state.val) {
                         try {
                             await api._cmdDirect('AudioAlarmPlay', {
                                 AudioAlarmPlay: { channel: ch, manualSwitch: 1, duration: 5 },
-                            }, 0);
+                            }, 0, { channel: ch });
                             this.log.info(`Siren triggered on camera "${camId}"`);
                         } catch (sirenErr) {
                             this.log.debug(`Camera "${camId}" Siren not supported: ${sirenErr.message}`);

@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "reolink-loxone",
-    "version": "1.1.1",
+    "version": "1.1.3",
     "title": "Reolink Camera Integration for Loxone",
     "titleLang": {
       "en": "Reolink Camera Integration for Loxone",
@@ -64,6 +64,16 @@
     },
     "messagebox": true,
     "news": {
+      "1.1.3": {
+        "en": "Fix SetWhiteLed URL: add channel as URL query param (matching Loxone format: /api.cgi?cmd=SetWhiteLed&channel=0&user=...)",
+        "de": "SetWhiteLed URL korrigiert: channel als URL-Parameter hinzugefügt",
+        "pl": "Naprawa URL SetWhiteLed: dodano channel jako parametr URL (zgodnie z formatem Loxone)"
+      },
+      "1.1.2": {
+        "en": "Fix ESLint errors: rewrite else-try to standard if/else, fix no-case-declarations in switch",
+        "de": "ESLint-Fehler behoben: else-try umgeschrieben, no-case-declarations im switch korrigiert",
+        "pl": "Naprawa bledow ESLint: przepisano else-try, poprawiono deklaracje w switch"
+      },
       "1.1.1": {
         "en": "Fix WhiteLed/Siren detection: default to enabled, catch errors gracefully at runtime instead of blocking via GetAbility",
         "de": "WhiteLed/Sirene-Erkennung korrigiert: standardmäßig aktiviert, Fehler werden zur Laufzeit abgefangen",
