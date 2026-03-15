@@ -209,23 +209,25 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
 
     startWebhookServer(port) {
         this.webhookServer = http.createServer((req, res) => {
-            // Accept POST /reolink/<camId>
             if (req.method !== 'POST') {
                 res.writeHead(405);
                 res.end();
                 return;
             }
 
-            // Extract camId from URL: /reolink/<camId>
-            const match = req.url && req.url.match(/^\/reolink\/([^/]+)/);
-            const camId = match ? decodeURIComponent(match[1]) : null;
+            // Try to identify camera from URL path: /reolink/<camId>
+            const match = req.url && req.url.match(/^\/reolink\/([^/?]+)/);
+            const camIdFromUrl = match ? decodeURIComponent(match[1]) : null;
+
+            // Also capture the source IP — used as fallback to identify camera
+            const sourceIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 
             let body = '';
             req.on('data', chunk => { body += chunk.toString(); });
             req.on('end', () => {
                 res.writeHead(200);
                 res.end('OK');
-                this.handleWebhookEvent(camId, body, req.headers);
+                this.handleWebhookEvent(camIdFromUrl, body, req.headers, sourceIp);
             });
         });
 
@@ -242,34 +244,35 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
      * Process incoming push event from Reolink camera.
      * Reolink sends JSON with event type and alarm state.
      */
-    async handleWebhookEvent(camId, body, headers) {
+    async handleWebhookEvent(camId, body, headers, sourceIp) {
         try {
-            this.log.debug(`Webhook event from "${camId}": ${body.slice(0, 200)}`);
+            this.log.debug(`Webhook event from "${camId || sourceIp}": ${body.slice(0, 300)}`);
 
-            // Try to find camId from body if not in URL
             let payload = {};
-            try { payload = JSON.parse(body); } catch (_) { /* not JSON — try to extract info */ }
-
-            // Reolink payload formats vary by firmware:
-            // Format A (newer): { "cmd": "NotifyAlarmEvent", "param": { "AlarmEvent": { "channel": 0, "type": "visitor", "alarm_state": 1 } } }
-            // Format B (older): array [ { "cmd": "...", ... } ]
-            // Format C: query string / form body
+            try { payload = JSON.parse(body); } catch (_) { /* not JSON */ }
 
             const events = this.parseReolinkPushPayload(payload, body);
 
-            // If no camId from URL, try matching by camera name in payload
-            let resolvedCamId = camId;
-            if (!resolvedCamId || !this.webhookCameras.has(resolvedCamId)) {
+            // Resolve camera: 1) camId from URL, 2) camera name from payload, 3) source IP
+            let resolvedCamId = (camId && this.webhookCameras.has(camId)) ? camId : null;
+
+            if (!resolvedCamId) {
                 for (const [id, cfg] of this.webhookCameras) {
+                    // Match by camera name in payload
                     if (events.cameraName && (cfg.name === events.cameraName || id === events.cameraName)) {
+                        resolvedCamId = id;
+                        break;
+                    }
+                    // Match by source IP address
+                    if (sourceIp && cfg.host === sourceIp) {
                         resolvedCamId = id;
                         break;
                     }
                 }
             }
 
-            if (!resolvedCamId || !this.webhookCameras.has(resolvedCamId)) {
-                this.log.debug(`Webhook: unknown camera "${resolvedCamId}", ignoring`);
+            if (!resolvedCamId) {
+                this.log.warn(`Webhook: cannot identify camera (url="${camId}", ip="${sourceIp}"). Configure URL as http://<ioBroker-IP>:${this.config.webhookPort}/reolink/<CameraName>`);
                 return;
             }
 
@@ -288,14 +291,21 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
     parseReolinkPushPayload(payload, rawBody) {
         const result = { list: [], cameraName: null };
 
-        // Array of commands (e.g. Reolink batch)
+        // Reolink sends an array of command objects
         const cmds = Array.isArray(payload) ? payload : [payload];
 
         for (const cmd of cmds) {
             if (!cmd || typeof cmd !== 'object') continue;
 
-            // NotifyAlarmEvent format
-            const alarm = cmd.param?.AlarmEvent || cmd.AlarmEvent || cmd.alarm;
+            // Standard Reolink format (all firmware versions):
+            // [ { "cmd": "NotifyAlarmEvent", "code": 0, "value": { "AlarmEvent": { "channel": 0, "type": "visitor", "alarm_state": 1 } } } ]
+            // Also seen with "param" instead of "value" in some firmware:
+            // [ { "cmd": "NotifyAlarmEvent", "param": { "AlarmEvent": { ... } } } ]
+            const alarm = cmd.value?.AlarmEvent
+                || cmd.param?.AlarmEvent
+                || cmd.AlarmEvent
+                || cmd.alarm;
+
             if (alarm) {
                 result.cameraName = alarm.name || alarm.camera_name || null;
                 const active = !!(alarm.alarm_state === 1 || alarm.alarm_state === true || alarm.active === 1);
@@ -304,7 +314,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 continue;
             }
 
-            // Simple flat format: { event: "visitor", state: 1, name: "..." }
+            // Flat format: { event: "visitor", state: 1 } or { type: "md", alarm_state: 1 }
             if (cmd.event || cmd.type) {
                 result.cameraName = cmd.name || cmd.camera_name || null;
                 const type = (cmd.event || cmd.type || '').toLowerCase();
@@ -313,9 +323,9 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
         }
 
-        // Fallback: if body contains "visitor" keyword, treat as visitor event
-        if (result.list.length === 0 && rawBody.toLowerCase().includes('visitor')) {
-            result.list.push({ type: 'visitor', active: true });
+        // Log unparsed payload in debug so user can report unknown formats
+        if (result.list.length === 0 && rawBody.length > 2) {
+            this.log.debug(`Webhook: could not parse payload — raw: ${rawBody.slice(0, 300)}`);
         }
 
         return result;
