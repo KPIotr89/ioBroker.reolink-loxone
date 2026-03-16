@@ -441,10 +441,6 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             const ab = ability?.Ability || ability || {};
             const chn = (ab.abilityChn && ab.abilityChn[0]) || {};
 
-            // Temporary: log raw doorbell-related fields for diagnosis
-            this.log.debug(`[caps:${camId}] ab.doorbell=${JSON.stringify(ab.doorbell)} chn.supportDoorbell=${JSON.stringify(chn.supportDoorbell)} chn.supportAiVisitor=${JSON.stringify(chn.supportAiVisitor)} chn.doorbell=${JSON.stringify(chn.doorbell)}`);
-            this.log.debug(`[caps:${camId}] chn keys: ${Object.keys(chn).filter(k => k.toLowerCase().includes('door') || k.toLowerCase().includes('visit') || k.toLowerCase().includes('bell')).join(', ')}`);
-
             if (ab.ptz && ab.ptz.ver > 0) caps.ptz = true;
             if (ab.ptzCtrl && ab.ptzCtrl.ver > 0) caps.ptz = true;
             if (chn.ptzCtrl && chn.ptzCtrl.ver > 0) caps.ptz = true;
@@ -461,15 +457,23 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
 
             if (chn.alarmAudio && chn.alarmAudio.permit > 0 && chn.alarmAudio.ver > 0) caps.siren = true;
 
-            // Visitor AI detection (supported on doorbell cameras and some smart cameras)
+            // Visitor AI detection
             if (chn.supportAiVisitor && chn.supportAiVisitor.ver > 0) caps.visitor = true;
             if (chn.supportAiVisitor && chn.supportAiVisitor.permit > 0) caps.visitor = true;
-            // Physical doorbell button
+
+            // Physical doorbell button detection
+            // Reolink Video Doorbell PoE uses supportDoorbellLight instead of doorbell/supportDoorbell
             if (ab.doorbell && ab.doorbell.ver > 0) caps.doorbell = true;
             if (chn.supportDoorbell && chn.supportDoorbell.ver > 0) caps.doorbell = true;
-            // If doorbell hardware detected, probe visitor state
+            if (chn.supportDoorbellLight && chn.supportDoorbellLight.ver > 0) caps.doorbell = true;
+            if (chn.supportVisitorLoudspeaker && chn.supportVisitorLoudspeaker.ver > 0) caps.doorbell = true;
+
+            // Probe getDoorbell to confirm — also sets visitor=true if button detected
             if (caps.doorbell) {
                 try { await api.getDoorbell(); caps.visitor = true; } catch (_) { /* skip */ }
+            } else {
+                // Last resort: probe directly — some models don't expose capability flags
+                try { await api.getDoorbell(); caps.doorbell = true; caps.visitor = true; } catch (_) { /* not a doorbell */ }
             }
 
             if (!caps.whiteLed && chn.supportWLLightAlarm && chn.supportWLLightAlarm.ver > 0) {
