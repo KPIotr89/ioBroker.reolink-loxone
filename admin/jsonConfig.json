@@ -91,9 +91,27 @@
               "default": false,
               "width": "55px",
               "tooltip": "Brief WhiteLed flash (≤3 s ON→OFF) from Reolink app triggers gate_trigger event to Loxone. Camera user must be Admin level."
+            },
+            {
+              "type": "checkbox",
+              "attr": "onvifEvents",
+              "label": "ONVIF",
+              "default": false,
+              "width": "55px",
+              "tooltip": "Use ONVIF PullPoint event subscription instead of polling for motion and AI detection. More responsive, less CPU load."
             }
           ],
           "default": []
+        },
+        "_discoverBtn": {
+          "type": "sendTo",
+          "command": "discover",
+          "label": "🔍 Discover Reolink cameras on network",
+          "jsonData": "{\"timeout\":5000}",
+          "showProcess": true,
+          "error": "error",
+          "result": "result",
+          "style": { "marginBottom": "12px" }
         },
         "_cameraHelp": {
           "type": "staticText",
@@ -176,10 +194,20 @@
           "max": 65535,
           "hidden": "data.loxoneMode === 'http' || !data.loxoneEnabled"
         },
+        "_dividerIntercom": {
+          "type": "divider"
+        },
+        "loxoneIntercomEnabled": {
+          "type": "checkbox",
+          "label": "Enable Loxone Intercom integration",
+          "default": false,
+          "hidden": "!data.loxoneEnabled",
+          "help": "When doorbell rings, send RTSP stream URL to a Loxone Virtual Input so the Loxone Touch panel can display the camera feed"
+        },
         "_loxoneInfo": {
           "type": "staticText",
           "label": "",
-          "text": "**Virtual Input naming convention**\n\nCreate these inputs in Loxone Config (names are case-sensitive):\n\n`Reolink_{Name}_Motion` — motion detected\n`Reolink_{Name}_AI_person` — person (AI)\n`Reolink_{Name}_AI_vehicle` — vehicle (AI)\n`Reolink_{Name}_Online` — camera online\n`Reolink_{Name}_Visitor` — doorbell pressed\n`Reolink_{Name}_gate_trigger` — gate trigger pulse\n\nCustom names can be set per camera in the `loxone` channel of each camera object.",
+          "text": "**Virtual Input naming convention**\n\nCreate these inputs in Loxone Config (names are case-sensitive):\n\n`Reolink_{Name}_Motion` — motion detected\n`Reolink_{Name}_AI_person` — person (AI)\n`Reolink_{Name}_AI_vehicle` — vehicle (AI)\n`Reolink_{Name}_Online` — camera online\n`Reolink_{Name}_Visitor` — doorbell pressed\n`Reolink_{Name}_gate_trigger` — gate trigger pulse\n`Reolink_{Name}_Intercom` — RTSP stream URL on ring (Loxone Intercom)\n\nCustom names can be set per camera in the `loxone` channel of each camera object.",
           "hidden": "!data.loxoneEnabled",
           "style": {
             "marginTop": "16px",

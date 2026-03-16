@@ -3,6 +3,8 @@
 const utils = require('@iobroker/adapter-core');
 const ReolinkAPI = require('./lib/reolink-api');
 const LoxoneBridge = require('./lib/loxone-bridge');
+const { discoverReolinkCameras } = require('./lib/discovery');
+const { OnvifEventClient } = require('./lib/onvif-events');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -42,8 +44,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         /** @type {Set<string>} Guards against concurrent polling calls per camera */
         this.pollingActive = new Set();
 
+        /** @type {Map<string, OnvifEventClient>} ONVIF event clients per camera */
+        this.onvifClients = new Map();
+
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
+        this.on('message', this.onMessage.bind(this));
         this.on('unload', this.onUnload.bind(this));
     }
 
@@ -115,6 +121,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
             }
             this.cameras.clear();
+
+            // Stop ONVIF event clients
+            for (const client of this.onvifClients.values()) {
+                client.stop();
+            }
+            this.onvifClients.clear();
 
             // Stop webhook server
             if (this.webhookServer) {
@@ -189,6 +201,26 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     this.log.info(`Camera "${camId}": push URL configured → ${webhookUrl}`);
                 } catch (e) {
                     this.log.warn(`Camera "${camId}": could not auto-configure push URL (${e.message}). Set manually in camera web UI: ${webhookUrl}`);
+                }
+            }
+
+            // Start ONVIF event subscription if enabled (replaces motion/AI polling)
+            if (camConfig.onvifEvents) {
+                try {
+                    const client = new OnvifEventClient({
+                        host: camConfig.host,
+                        port: camConfig.port || 80,
+                        username: camConfig.username,
+                        password: camConfig.password,
+                        useHttps: camConfig.useHttps || false,
+                        log: this.log,
+                        onEvent: (evt) => this.applyWebhookEvent(camId, camConfig, evt.type, evt.active),
+                    });
+                    await client.start();
+                    this.onvifClients.set(camId, client);
+                    this.log.info(`Camera "${camId}": ONVIF event subscription active (polling disabled for motion/AI)`);
+                } catch (e) {
+                    this.log.warn(`Camera "${camId}": ONVIF events failed, falling back to polling: ${e.message}`);
                 }
             }
 
@@ -363,7 +395,16 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 await this.setStateAsync(`${camId}.status.visitorDetected`, active, true);
                 await this.setStateAsync(`${camId}.status.doorbellRing`, active, true);
                 if (this.loxoneBridge) {
+                    // Standard visitor VI (0/1)
                     await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', active ? 1 : 0);
+                    // Loxone Intercom integration: send RTSP stream URL so Loxone can display camera feed
+                    if (active) {
+                        const api = this.cameras.get(camId);
+                        const rtspUrl = api ? api.getRtspUrl(camConfig.channel || 0, 'main') : '';
+                        await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'intercom', rtspUrl || 1);
+                    } else {
+                        await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'intercom', 0);
+                    }
                 }
                 break;
 
@@ -603,6 +644,7 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             await this.createStateObj(camId, 'loxone.vehicleInputName', 'Loxone VI name for vehicle', 'string', 'text', `Reolink_${camId}_AI_vehicle`, true);
             await this.createStateObj(camId, 'loxone.onlineInputName', 'Loxone VI name for status', 'string', 'text', `Reolink_${camId}_Online`, true);
             await this.createStateObj(camId, 'loxone.visitorInputName', 'Loxone VI name for visitor/doorbell', 'string', 'text', `Reolink_${camId}_Visitor`, true);
+            await this.createStateObj(camId, 'loxone.intercamInputName', 'Loxone Intercom VI name (sends RTSP URL on ring)', 'string', 'text', `Reolink_${camId}_Intercom`, true);
         }
 
         this.log.debug(`Object tree created for camera "${camId}"`);
@@ -620,8 +662,12 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         try {
             const ch = camConfig.channel || 0;
 
+            // Motion + AI detection — skipped if ONVIF events are active (push > poll)
+            const onvifActive = this.onvifClients.has(camId);
+
             // Motion detection state
             try {
+                if (onvifActive) throw new Error('onvif'); // skip gracefully
                 const mdState = await api.getMdState(ch);
                 const motion = !!(mdState?.state || mdState?.MdState?.state);
                 const prev = this.lastStates.get(`${camId}.motion`);
@@ -694,8 +740,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
             }
 
-            // AI detection state (only if camera supports AI)
-            if (this.hasCapability(camId, 'aiDetection')) {
+            // AI detection state (only if camera supports AI and ONVIF not handling it)
+            if (this.hasCapability(camId, 'aiDetection') && !onvifActive) {
                 try {
                     const aiState = await api.getAiState(ch);
                     const aiData = aiState?.AiState || aiState;
@@ -983,6 +1029,27 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
         } catch (err) {
             this.log.error(`Error handling command ${channel}.${stateName} for "${camId}": ${err.message}`);
+        }
+    }
+
+    // ─── MESSAGE HANDLER (admin UI commands) ──────────────────────────
+
+    async onMessage(msg) {
+        if (!msg || !msg.command) return;
+
+        if (msg.command === 'discover') {
+            this.log.info('Starting camera discovery...');
+            try {
+                const cameras = await discoverReolinkCameras({
+                    timeoutMs: (msg.message && msg.message.timeout) || 5000,
+                    log: this.log,
+                });
+                this.log.info(`Discovery complete: found ${cameras.length} camera(s)`);
+                this.sendTo(msg.from, msg.command, { result: cameras, error: null }, msg.callback);
+            } catch (e) {
+                this.log.warn(`Discovery error: ${e.message}`);
+                this.sendTo(msg.from, msg.command, { result: [], error: e.message }, msg.callback);
+            }
         }
     }
 
