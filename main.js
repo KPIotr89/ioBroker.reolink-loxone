@@ -220,7 +220,13 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     this.onvifClients.set(camId, client);
                     this.log.info(`Camera "${camId}": ONVIF event subscription active (polling disabled for motion/AI)`);
                 } catch (e) {
-                    this.log.warn(`Camera "${camId}": ONVIF events failed, falling back to polling: ${e.message}`);
+                    // SOAP-ENV:Client = camera firmware does not support PullPoint — not a config error
+                    const isFirmwareLimit = e.message.includes('SOAP Fault') || e.message.includes('SOAP-ENV');
+                    if (isFirmwareLimit) {
+                        this.log.info(`Camera "${camId}": ONVIF PullPoint not supported by this firmware — using API polling instead. Disable the ONVIF checkbox to suppress this message.`);
+                    } else {
+                        this.log.warn(`Camera "${camId}": ONVIF events failed, falling back to polling: ${e.message}`);
+                    }
                 }
             }
 
