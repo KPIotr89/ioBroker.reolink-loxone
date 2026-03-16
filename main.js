@@ -441,6 +441,10 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             const ab = ability?.Ability || ability || {};
             const chn = (ab.abilityChn && ab.abilityChn[0]) || {};
 
+            // Temporary: log raw doorbell-related fields for diagnosis
+            this.log.debug(`[caps:${camId}] ab.doorbell=${JSON.stringify(ab.doorbell)} chn.supportDoorbell=${JSON.stringify(chn.supportDoorbell)} chn.supportAiVisitor=${JSON.stringify(chn.supportAiVisitor)} chn.doorbell=${JSON.stringify(chn.doorbell)}`);
+            this.log.debug(`[caps:${camId}] chn keys: ${Object.keys(chn).filter(k => k.toLowerCase().includes('door') || k.toLowerCase().includes('visit') || k.toLowerCase().includes('bell')).join(', ')}`);
+
             if (ab.ptz && ab.ptz.ver > 0) caps.ptz = true;
             if (ab.ptzCtrl && ab.ptzCtrl.ver > 0) caps.ptz = true;
             if (chn.ptzCtrl && chn.ptzCtrl.ver > 0) caps.ptz = true;
