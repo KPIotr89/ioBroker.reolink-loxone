@@ -92,14 +92,6 @@
               "width": "55px",
               "tooltip": "Brief WhiteLed flash (≤3 s ON→OFF) from Reolink app triggers gate_trigger event to Loxone. Camera user must be Admin level."
             },
-            {
-              "type": "checkbox",
-              "attr": "onvifEvents",
-              "label": "ONVIF",
-              "default": false,
-              "width": "55px",
-              "tooltip": "Use ONVIF PullPoint event subscription instead of polling for motion and AI detection. More responsive, less CPU load."
-            }
           ],
           "default": []
         },

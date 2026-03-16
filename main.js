@@ -4,7 +4,6 @@ const utils = require('@iobroker/adapter-core');
 const ReolinkAPI = require('./lib/reolink-api');
 const LoxoneBridge = require('./lib/loxone-bridge');
 const { discoverReolinkCameras } = require('./lib/discovery');
-const { OnvifEventClient } = require('./lib/onvif-events');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -44,8 +43,6 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         /** @type {Set<string>} Guards against concurrent polling calls per camera */
         this.pollingActive = new Set();
 
-        /** @type {Map<string, OnvifEventClient>} ONVIF event clients per camera */
-        this.onvifClients = new Map();
 
         this.on('ready', this.onReady.bind(this));
         this.on('stateChange', this.onStateChange.bind(this));
@@ -122,12 +119,6 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             }
             this.cameras.clear();
 
-            // Stop ONVIF event clients
-            for (const client of this.onvifClients.values()) {
-                client.stop();
-            }
-            this.onvifClients.clear();
-
             // Stop webhook server
             if (this.webhookServer) {
                 this.webhookServer.close();
@@ -201,32 +192,6 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     this.log.info(`Camera "${camId}": push URL configured → ${webhookUrl}`);
                 } catch (e) {
                     this.log.warn(`Camera "${camId}": could not auto-configure push URL (${e.message}). Set manually in camera web UI: ${webhookUrl}`);
-                }
-            }
-
-            // Start ONVIF event subscription if enabled (replaces motion/AI polling)
-            if (camConfig.onvifEvents) {
-                try {
-                    const client = new OnvifEventClient({
-                        host: camConfig.host,
-                        port: camConfig.port || 80,
-                        username: camConfig.username,
-                        password: camConfig.password,
-                        useHttps: camConfig.useHttps || false,
-                        log: this.log,
-                        onEvent: (evt) => this.applyWebhookEvent(camId, camConfig, evt.type, evt.active),
-                    });
-                    await client.start();
-                    this.onvifClients.set(camId, client);
-                    this.log.info(`Camera "${camId}": ONVIF event subscription active (polling disabled for motion/AI)`);
-                } catch (e) {
-                    // SOAP-ENV:Client = camera firmware does not support PullPoint — not a config error
-                    const isFirmwareLimit = e.message.includes('SOAP Fault') || e.message.includes('SOAP-ENV');
-                    if (isFirmwareLimit) {
-                        this.log.info(`Camera "${camId}": ONVIF PullPoint not supported by this firmware — using API polling instead. Disable the ONVIF checkbox to suppress this message.`);
-                    } else {
-                        this.log.warn(`Camera "${camId}": ONVIF events failed, falling back to polling: ${e.message}`);
-                    }
                 }
             }
 
@@ -668,12 +633,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
         try {
             const ch = camConfig.channel || 0;
 
-            // Motion + AI detection — skipped if ONVIF events are active (push > poll)
-            const onvifActive = this.onvifClients.has(camId);
-
             // Motion detection state
             try {
-                if (onvifActive) throw new Error('onvif'); // skip gracefully
                 const mdState = await api.getMdState(ch);
                 const motion = !!(mdState?.state || mdState?.MdState?.state);
                 const prev = this.lastStates.get(`${camId}.motion`);
@@ -746,8 +707,8 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                 }
             }
 
-            // AI detection state (only if camera supports AI and ONVIF not handling it)
-            if (this.hasCapability(camId, 'aiDetection') && !onvifActive) {
+            // AI detection state
+            if (this.hasCapability(camId, 'aiDetection')) {
                 try {
                     const aiState = await api.getAiState(ch);
                     const aiData = aiState?.AiState || aiState;

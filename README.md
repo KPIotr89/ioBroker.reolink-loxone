@@ -42,9 +42,6 @@ Brief spotlight flash from the Reolink app (≤ 3 s ON → OFF) detected by the 
 **🔌 Webhook push receiver**
 Built-in HTTP server receives push alerts from cameras. The adapter auto-configures each camera's push URL on startup.
 
-**📡 ONVIF event subscription**
-Per-camera ONVIF PullPoint subscription delivers motion, person, vehicle, animal and face events without polling the Reolink API. Frees CPU and reduces latency to under 2 s.
-
 **🔍 Auto-discovery**
 One click in the admin panel probes the local network via ONVIF WS-Discovery UDP multicast and confirms every Reolink device it finds. Returns model, firmware version and serial — ready to paste into the camera list.
 
@@ -105,7 +102,7 @@ Add each camera in the **Cameras** tab. One row per camera or NVR channel.
 | HTTPS | off | Enable TLS |
 | Poll (s) | 5 | Status polling interval |
 | Gate trigger | off | Enable WhiteLed flash → gate open signal |
-| ONVIF events | off | Use ONVIF PullPoint instead of API polling for motion/AI events |
+
 
 > **Required for WhiteLed control:** the camera user account must have admin-level permissions. Guest accounts cannot control the spotlight.
 
@@ -178,18 +175,6 @@ Results are shown in the admin panel as a table:
 Copy the IP, port and any details you need directly into the camera list.
 
 <br/>
-
-### ONVIF event subscription
-
-Enable the **ONVIF** checkbox for individual cameras. The adapter creates a WS-Eventing PullPoint subscription on startup:
-
-1. `CreatePullPointSubscription` — opens a subscription with a 60 s TTL
-2. `PullMessages` every 2 s — receives queued events immediately
-3. `Renew` at 50 s — keeps the subscription alive indefinitely
-
-When ONVIF events are active for a camera, API-based motion and AI polling is disabled for that camera. Events still update the same ioBroker states and trigger the same Loxone Virtual Inputs.
-
-> **Note:** ONVIF requires the camera user to have ONVIF/admin rights. The same username and password from the Cameras tab are used.
 
 <br/>
 
