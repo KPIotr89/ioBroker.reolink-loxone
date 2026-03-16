@@ -465,18 +465,26 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             // Button press event is polled via GetDoorbell → ring_state (= visitor in Reolink terms).
             // supportDoorbellLight = button LED backlight hardware → doorbell model
             // supportVisitorLoudspeaker = two-way audio on doorbell → doorbell model
-            if (ab.doorbell && ab.doorbell.ver > 0) caps.doorbell = true;
-            if (chn.supportDoorbell && chn.supportDoorbell.ver > 0) caps.doorbell = true;
-            // Reolink Video Doorbell PoE: these fields exist (even with ver=0) only on doorbell models
-            if (chn.supportDoorbellLight !== undefined) caps.doorbell = true;
-            if (chn.supportVisitorLoudspeaker !== undefined) caps.doorbell = true;
+            // Doorbell hardware hints — any of these suggests it's a doorbell model.
+            // But we always confirm by probing GetDoorbell: if it fails, doorbell=false.
+            const doorbellHint =
+                (ab.doorbell && ab.doorbell.ver > 0) ||
+                (chn.supportDoorbell && chn.supportDoorbell.ver > 0) ||
+                chn.supportDoorbellLight !== undefined ||
+                chn.supportVisitorLoudspeaker !== undefined;
 
-            // If identified as doorbell, confirm GetDoorbell works (sets visitor capability too)
-            if (caps.doorbell) {
-                try { await api.getDoorbell(); caps.visitor = true; } catch (_) { /* skip */ }
-            } else {
-                // Last resort for models that expose no flags: probe GetDoorbell directly
-                try { await api.getDoorbell(); caps.doorbell = true; caps.visitor = true; } catch (_) { /* not a doorbell */ }
+            // Probe GetDoorbell — this is the only reliable confirmation.
+            // rspCode=-9 "not support" means hardware is absent or firmware doesn't expose it.
+            try {
+                await api.getDoorbell();
+                caps.doorbell = true;
+                caps.visitor = true;
+            } catch (_) {
+                // GetDoorbell failed → not a functional doorbell regardless of hint flags
+                if (doorbellHint) {
+                    this.log.debug(`Camera "${camId}": doorbell hardware hinted but GetDoorbell not supported — doorbell polling disabled`);
+                }
+                caps.doorbell = false;
             }
 
             if (!caps.whiteLed && chn.supportWLLightAlarm && chn.supportWLLightAlarm.ver > 0) {
