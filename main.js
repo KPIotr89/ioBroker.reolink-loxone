@@ -461,18 +461,21 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
             if (chn.supportAiVisitor && chn.supportAiVisitor.ver > 0) caps.visitor = true;
             if (chn.supportAiVisitor && chn.supportAiVisitor.permit > 0) caps.visitor = true;
 
-            // Physical doorbell button detection
-            // Reolink Video Doorbell PoE uses supportDoorbellLight instead of doorbell/supportDoorbell
+            // Doorbell hardware detection — any of these fields means it's a doorbell camera.
+            // Button press event is polled via GetDoorbell → ring_state (= visitor in Reolink terms).
+            // supportDoorbellLight = button LED backlight hardware → doorbell model
+            // supportVisitorLoudspeaker = two-way audio on doorbell → doorbell model
             if (ab.doorbell && ab.doorbell.ver > 0) caps.doorbell = true;
             if (chn.supportDoorbell && chn.supportDoorbell.ver > 0) caps.doorbell = true;
-            if (chn.supportDoorbellLight && chn.supportDoorbellLight.ver > 0) caps.doorbell = true;
-            if (chn.supportVisitorLoudspeaker && chn.supportVisitorLoudspeaker.ver > 0) caps.doorbell = true;
+            // Reolink Video Doorbell PoE: these fields exist (even with ver=0) only on doorbell models
+            if (chn.supportDoorbellLight !== undefined) caps.doorbell = true;
+            if (chn.supportVisitorLoudspeaker !== undefined) caps.doorbell = true;
 
-            // Probe getDoorbell to confirm — also sets visitor=true if button detected
+            // If identified as doorbell, confirm GetDoorbell works (sets visitor capability too)
             if (caps.doorbell) {
                 try { await api.getDoorbell(); caps.visitor = true; } catch (_) { /* skip */ }
             } else {
-                // Last resort: probe directly — some models don't expose capability flags
+                // Last resort for models that expose no flags: probe GetDoorbell directly
                 try { await api.getDoorbell(); caps.doorbell = true; caps.visitor = true; } catch (_) { /* not a doorbell */ }
             }
 
