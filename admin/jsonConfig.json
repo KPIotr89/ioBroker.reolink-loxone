@@ -223,6 +223,12 @@
           "default": false,
           "help": "Start a local HTTP server that receives push events from Reolink cameras — no polling needed for doorbell and visitor events"
         },
+        "go2rtcUrl": {
+          "type": "text",
+          "label": "go2rtc base URL (optional)",
+          "placeholder": "rtsp://192.168.0.201:8554",
+          "help": "If set, Loxone Intercom will receive go2rtc RTSP URLs instead of direct camera URLs. Format: rtsp://ip:8554"
+        },
         "webhookPort": {
           "type": "number",
           "label": "Listen port",

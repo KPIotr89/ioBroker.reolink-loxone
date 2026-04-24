@@ -370,9 +370,16 @@ class ReolinkLoxoneAdapter extends utils.Adapter {
                     await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'visitor', active ? 1 : 0);
                     // Loxone Intercom integration: send RTSP stream URL so Loxone can display camera feed
                     if (active) {
-                        const api = this.cameras.get(camId);
-                        const rtspUrl = api ? api.getRtspUrl(camConfig.channel || 0, 'main') : '';
-                        await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'intercom', rtspUrl || 1);
+                        let streamUrl;
+                        const go2rtcBase = (this.config.go2rtcUrl || '').replace(/\/$/, '');
+                        if (go2rtcBase) {
+                            // Use go2rtc restream — camera name must match go2rtc stream name
+                            streamUrl = `${go2rtcBase}/${camId}`;
+                        } else {
+                            const api = this.cameras.get(camId);
+                            streamUrl = api ? api.getRtspUrl(camConfig.channel || 0, 'main') : '';
+                        }
+                        await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'intercom', streamUrl || 1);
                     } else {
                         await this.loxoneBridge.sendCustomEvent(camConfig.name || camId, 'intercom', 0);
                     }
